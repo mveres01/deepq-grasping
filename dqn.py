@@ -78,13 +78,12 @@ if __name__ == '__main__':
             state_ = state.astype(np.float32) / 255. 
             cur_step = float(step) / float(max_num_steps)
             
-            action = model.choose_action(state_, cur_step).cpu().numpy()
-            action = action.flatten()
+            action = model.choose_action(state_, cur_step)
+            action = action.cpu().numpy().flatten()
 
             next_state, reward, terminal, _ = env.step(action)
             next_state = next_state.transpose(2, 0, 1)[np.newaxis]
 
-            # Store the transition in the experience replay bank
             memory.add(state, action, reward, next_state, terminal, step)
 
             # Train the networks;

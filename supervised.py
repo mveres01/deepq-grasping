@@ -25,6 +25,7 @@ import pybullet_envs.bullet.kuka_diverse_object_gym_env as e
 from agent import Agent
 from utils import ReplayMemoryBuffer, collect_experience
 
+device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 if __name__ == '__main__':
 
@@ -35,23 +36,21 @@ if __name__ == '__main__':
 
     max_num_episodes = 50000
     max_num_steps = 15
-    max_buffer_size = 10000
-    q_update_iter = 50  # Every N iterations, make a copy of the current network
-
-    use_cuda = torch.cuda.is_available()
+    max_buffer_size = 100000
+    q_update_iter = 50
 
     lrate = 1e-4
     decay = 0.
-    batch_size = 64
+    batch_size = 128
     num_rows = 64
     num_cols = 64
     in_channels = 3
     out_channels = 32
-    num_random = 32
+    num_random = 64
     num_cem = 64
     cem_iter = 3
     cem_elite = 6
-    is_test = False
+    max_grad_norm = 100
     gamma = 0.96
     state_space = (3, num_rows, num_cols)
     action_space = (action_size,)
@@ -62,15 +61,11 @@ if __name__ == '__main__':
                                  removeHeightHack=remove_height_hack,
                                  maxSteps=max_num_steps,
                                  renders=render_env,
-                                 isDiscrete=False,
-                                 isTest=is_test)
+                                 isDiscrete=False)
     # env.render(mode='human')
 
     model = Agent(in_channels, out_channels, action_size,
-                  num_random, num_cem, cem_iter, cem_elite, use_cuda)
-
-    if use_cuda:
-        model.cuda()
+                  num_random, num_cem, cem_iter, cem_elite).to(device)
 
     # model.load_state_dict(torch.load('checkpoints/2000_model.pt'))
     optimizer = optim.Adam(model.parameters(), lr=lrate, weight_decay=decay)
@@ -82,8 +77,8 @@ if __name__ == '__main__':
     else:
         collect_experience(env, memory, print_status_every=100)
         memory.save(data_dir)
-
     memory.set_supervised()
+
     train_loader = DataLoader(memory, batch_size, True, num_workers=0)
 
     cur_iter = 0
@@ -103,30 +98,42 @@ if __name__ == '__main__':
                 # When we select an action to use in the simulator - use CEM
                 # This action represents a vector from the current state to the end
                 # state - divide the action into max_num_steps segments
-                cur_time = float(step) / float(max_num_steps)
-                cur_action = model.choose_action(state, cur_time=cur_time).flatten()
+                state_ = state.astype(np.float32) / 255.
+                cur_step = float(step) / float(max_num_steps)
 
 
-                next_state, reward, terminal, _ = env.step(cur_action)
+                # NOTE: Actions are being clipped to [-1, 1] in CEM method
+                # TODO: Make sure these actions are plausible within system, 
+                # e.g. the position vector is no larger then [-1, 1]
+                action = model.choose_action(state_, cur_step)
+                action = action.cpu().numpy().flatten()
+            
+    
+                action_ = action = float(max_num_steps)
+                next_state, reward, terminal, _ = env.step(action_)
                 next_state = next_state.transpose(2, 0, 1)[np.newaxis]
 
-                sequence.append([state, cur_action, reward, next_state, terminal, step])
-
+                sequence.append([state, action, reward, next_state, terminal, step])
 
                 # Train the networks
-                s0, act, reward_label, _, _, timestep = batch
+                s0, act, r, s1, term, timestep = batch
 
-                timestep /= float(max_num_steps)
-                reward_label = Variable(reward_label.cuda() if use_cuda else
-                                        reward_label)
+                s0 = torch.from_numpy(s0).to(device).requires_grad_(True)
+                act = torch.from_numpy(act).to(device).requires_grad_(True)
+                r = torch.from_numpy(r).to(device).requires_grad_(False)
 
-                # Q_current predicts the Q value over the current state
-                q_pred = model(s0.numpy(), timestep.numpy(), act.numpy()).view(-1)
+                t0 = timestep / float(max_num_steps)
+                t0 = torch.from_numpy(t0).to(device).requires_grad_(True)
 
-                loss = F.binary_cross_entropy_with_logits(q_pred, reward_label)
+                # Predict a binary outcome
+                q_pred = model(s0, t0, act).view(-1)
+                q_pred = F.sigmoid(q_pred)
+
+                loss = F.binary_cross_entropy_with_logits(q_pred, r.view(-1))
 
                 optimizer.zero_grad()
                 loss.backward()
+                torch.nn.utils.clip_grad_norm_(model.parameters(), max_grad_norm)
                 optimizer.step()
 
                 if terminal:

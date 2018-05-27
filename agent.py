@@ -65,20 +65,6 @@ class Agent(nn.Module):
             if len(p.shape) > 1:
                 nn.init.xavier_uniform_(p)
 
-    def _forward_q(self, hidden, action):
-        """Computes the Q-Value from a hidden state rep & raw action."""
-
-        # Process the action & broadcast to state shape
-        out = self.action_net(action)
-        out = out.unsqueeze(2).unsqueeze(3).expand_as(hidden)
-
-        # (s, a) -> q
-        out = (hidden + out).view(out.size(0), -1)
-        out = F.relu(self.fc1(out))
-        out = F.relu(self.fc2(out))
-        out = self.fc3(out)
-        return out
-
     def _cem_optimizer(self, hidden):
         """Implements the cross entropy method.
 
@@ -96,7 +82,7 @@ class Agent(nn.Module):
             # Sample a few actions from the Gaussian parameterized by (mu, var)
             size = (self.num_cem, self.action_size)
             action = torch.normal(mu.expand(*size), std.expand(*size)).to(device)
-            action = action.clamp(-1, 1)
+            #action = action.clamp(-1, 1)
 
             # (s, a) -> q 
             q = self._forward_q(hidden, action).view(-1)
@@ -110,6 +96,20 @@ class Agent(nn.Module):
 
         return mu
 
+    def _forward_q(self, hidden, action):
+        """Computes the Q-Value from a hidden state rep & raw action."""
+
+        # Process the action & broadcast to state shape
+        out = self.action_net(action)
+        out = out.unsqueeze(2).unsqueeze(3).expand_as(hidden)
+
+        # (s, a) -> q
+        out = (hidden + out).view(out.size(0), -1)
+        out = F.relu(self.fc1(out))
+        out = F.relu(self.fc2(out))
+        out = self.fc3(out)
+        return out
+
     def _uniform_optimizer(self, hidden):
         """Used during training to find the most likely actions.
 
@@ -122,20 +122,18 @@ class Agent(nn.Module):
 
         outputs = torch.zeros((hidden.size(0), self.action_size), device=device)
        
-        # Pre-compute the samples we want to try, so we don't generate each time
+        # Pre-compute the samples we'll try
         actions = torch.zeros((hidden.size(0), 
                                self.num_uniform, 
                                self.action_size), 
                                device=device).uniform_(-1, 1)
 
-        # Calculate the optimal action for each sample in the batch.
         for i in range(hidden.size(0)):
 
             # (num_uniform, channel, rows, cols)
             hid = hidden[i:i+1].expand(self.num_uniform, -1, -1, -1)
 
             _, top1 = self._forward_q(hid, actions[i]).max(0)
-            
             outputs[i] = actions[i, top1]
 
         return outputs

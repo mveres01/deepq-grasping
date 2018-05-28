@@ -7,12 +7,12 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
-from torch.autograd import Variable
 import pybullet_envs.bullet.kuka_diverse_object_gym_env as e
 
 from agent import Agent, StateNetwork
 from utils import ReplayMemoryBuffer, collect_experience
 
+device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 class Actor(nn.Module):
     def __init__(self, in_channels, out_channels, action_size, use_cuda):
@@ -27,24 +27,11 @@ class Actor(nn.Module):
 
         for p in self.parameters():
             if len(p.shape) > 1:
-                nn.init.xavier_uniform(p)
+                nn.init.xavier_uniform_(p)
 
     def forward(self, image, cur_time):
 
-        # Process the state representation using a CNN
-        image_var = Variable(torch.FloatTensor(image) / 255., requires_grad=False)
-
-        if isinstance(cur_time, float):
-            time_var = torch.FloatTensor([cur_time])
-        else:
-            time_var = torch.from_numpy(cur_time)
-        time_var = Variable(time_var, requires_grad=False)
-
-        if self.use_cuda:
-            image_var = image_var.cuda()
-            time_var = time_var.cuda()
-
-        out = self.state_net(image_var, time_var)
+        out = self.state_net(image, cur_time)
         out = out.view(image.shape[0], -1)
 
         out = F.relu(self.fc1(out))
@@ -63,7 +50,6 @@ if __name__ == '__main__':
     max_num_steps = 15
     max_buffer_size = 100000
 
-    use_cuda = torch.cuda.is_available()
     num_rows = 64
     num_cols = 64
     in_channels = 3
@@ -71,7 +57,8 @@ if __name__ == '__main__':
     lrate = 1e-4
     batch_size = 64
     gamma = 0.96
-    decay = 1e-2
+    max_grad_norm = 100
+    decay = 0
     q_update_iter = 50  # Every N iterations, make a copy of the current network
 
     action_size = 4 if remove_height_hack else 3
@@ -86,12 +73,9 @@ if __name__ == '__main__':
                                  renders=render_env,
                                  isDiscrete=False)
 
-    actor = Actor(in_channels, out_channels, action_size, use_cuda)
-    critic = Agent(in_channels, out_channels, action_size, 0, 0, 0, 0, use_cuda)
-
-    if use_cuda:
-        actor.cuda()
-        critic.cuda()
+    actor = Actor(in_channels, out_channels, action_size).to(device)
+    critic = Agent(in_channels, out_channels, 
+                   action_size, 0, 0, 0, 0).to(device)
 
     actor_target = copy.deepcopy(actor)
     critic_target = copy.deepcopy(critic)
@@ -122,12 +106,13 @@ if __name__ == '__main__':
 
         for step in range(max_num_steps + 1):
 
-            cur_step = float(step) / float(max_num_steps)
-            action = actor(state, cur_step).cpu().data.numpy().flatten()
+            state_ = state.astype(np.float32) / 255.
+            state_ = torch.from_numpy(state_).to(device)
 
-            if episode % 5 == 0:
-                np.set_printoptions(2)
-                print(action)
+            cur_step = float(step) / float(max_num_steps)
+            cur_step = torch.tensor([cur_time, device=device])
+
+            action = actor(state, cur_step).cpu().data.numpy().flatten()
 
             # Exploration
             action = action + np.random.normal(0, 0.05, action.shape)
@@ -140,30 +125,37 @@ if __name__ == '__main__':
             memory.add(state, action, reward, next_state, terminal, step)
             reward_queue.append(reward)
 
-            # Update the current policy using experience from the memory buffer
+            # Train the networks;
             s0, act, r, s1, term, timestep = memory.sample(batch_size)
 
-            t0 = timestep / max_num_steps
-            t1 = (timestep + 1.) / max_num_steps
+            s0 = torch.from_numpy(s0).to(device).requires_grad_(True)
+            act = torch.from_numpy(act).to(device).requires_grad_(True)
+            s1 = torch.from_numpy(s1).to(device).requires_grad_(False)
+            r = torch.from_numpy(r).to(device).requires_grad_(False)
+            term = torch.from_numpy(term).to(device).requires_grad_(False)
+
+            t0 = timestep / float(max_num_steps)
+            t0 = torch.from_numpy(t0).to(device).requires_grad_(True)
+
+            t1 = (timestep + 1.) / float(max_num_steps)
+            t1 = torch.from_numpy(t1).to(device).requires_grad_(False)
 
             # Training the critic is through Mean Squared Error
-            a_target = actor_target(s1, t1)
-            q_target = critic_target(s1, t1, a_target).view(-1)
-            y = Variable(r + (1. - term) * gamma * q_target.data)
-
-            if use_cuda:
-                y = y.cuda()
+            with torch.no_grad():
+                a_target = actor_target(s1, t1)
+                q_target = critic_target(s1, t1, a_target).view(-1)
+                y = r + (1. - term) * gamma * q_target
 
             q_pred = critic(s0, t0, act).view(-1)
 
-            critic_loss = torch.mean(torch.pow(y - q_pred, 2))
+            loss = torch.mean((y - q_pred) ** 2)
 
             critic_optim.zero_grad()
-            critic_loss.backward()
+            loss.backward()
             critic_optim.step()
             critic_optim.zero_grad()
 
-            # Update the actor network
+            # Update the actor network by following the policy gradient
             q_pred = -critic(s0, t0, actor(s0, t0)).mean()
 
             actor_optim.zero_grad()

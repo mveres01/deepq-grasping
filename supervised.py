@@ -8,6 +8,9 @@
 # re-chosen / chosen at every time step (e.g.~for visual servoing).
 # Maybe make a second supervised file and check whether predicting at
 # multiple steps is better then as a straight line?
+# TODO: Does the replay memory buffer get updated at all? If not, we're 
+# constraining the network predict outcome with a fixed distribution equal 
+# to the split of (positive, negative) samples in the training set
 """
 
 import os
@@ -55,6 +58,8 @@ if __name__ == '__main__':
     state_space = (3, num_rows, num_cols)
     action_space = (action_size,)
     reward_queue = deque(maxlen=100)
+    loss_queue = deque(maxlen=100)
+    accuracies = deque(maxlen=100)
 
     env = e.KukaDiverseObjectEnv(height=num_rows,
                                  width=num_cols,
@@ -84,76 +89,85 @@ if __name__ == '__main__':
     cur_iter = 0
     for episode in range(max_num_episodes):
 
-        for batch in train_loader:
+        start = time.time()
 
-            start = time.time()
+        state = env.reset()
+        state = state.transpose(2, 0, 1)[np.newaxis]
 
-            state = env.reset()
-            state = state.transpose(2, 0, 1)[np.newaxis]
+        # Apply the linearly spaced action vector in the simulator
+        sequence = []
+        for step in range(max_num_steps + 1):
 
-            # Apply the linearly spaced action vector in the simulator
-            sequence = []
-            for step in range(max_num_steps + 1):
+            # When we select an action to use in the simulator - use CEM
+            # This action represents a vector from the current state to the end
+            # state - divide the action into max_num_steps segments
+            state_ = state.astype(np.float32) / 255.
+            cur_step = float(step) / float(max_num_steps)
 
-                # When we select an action to use in the simulator - use CEM
-                # This action represents a vector from the current state to the end
-                # state - divide the action into max_num_steps segments
-                state_ = state.astype(np.float32) / 255.
-                cur_step = float(step) / float(max_num_steps)
+            # NOTE: Actions are being clipped to [-1, 1] in CEM method
+            # TODO: Make sure these actions are plausible within system, 
+            # e.g. the position vector is no larger then [-1, 1]
+            action = model.choose_action(state_, cur_step)
+
+            action_step = action.cpu().numpy().flatten()
+            action_step = action_step / (float(max_num_steps) - step)
 
 
-                # NOTE: Actions are being clipped to [-1, 1] in CEM method
-                # TODO: Make sure these actions are plausible within system, 
-                # e.g. the position vector is no larger then [-1, 1]
-                action = model.choose_action(state_, cur_step)
-                action = action.cpu().numpy().flatten()
+            next_state, reward, terminal, _ = env.step(action_step)
+            next_state = next_state.transpose(2, 0, 1)[np.newaxis]
+
+            sequence.append([state, action, reward, next_state, terminal, step])
+
+            # Train the networks
+            s0, act, r, _, _, timestep = next(iter(train_loader))
+
+            s0 = s0.to(device).requires_grad_(True)
+            act = act.to(device).requires_grad_(True)
+            r = r.to(device).requires_grad_(True)
+
+            t0 = timestep / float(max_num_steps)
+            t0 = t0.to(device).requires_grad_(True)
+
+            # Predict a binary outcome
+            q_pred = model(s0, t0, act).view(-1)
+
+            loss = torch.nn.BCEWithLogitsLoss()(q_pred, r.view(-1))
             
-    
-                action_ = action = float(max_num_steps)
-                next_state, reward, terminal, _ = env.step(action_)
-                next_state = next_state.transpose(2, 0, 1)[np.newaxis]
+            optimizer.zero_grad()
+            loss.backward()
+            torch.nn.utils.clip_grad_norm_(model.parameters(), max_grad_norm)
+            optimizer.step()
 
-                sequence.append([state, action, reward, next_state, terminal, step])
 
-                # Train the networks
-                s0, act, r, s1, term, timestep = batch
+            q_pred = q_pred.detach()
+            q_pred[q_pred >= 0.5] = 1.
+            q_pred[q_pred < 0.5] = 0.
+            acc = (q_pred== r).mean()
+            accuracies.append(acc.cpu().data.numpy())
+            loss_queue.append(loss.cpu().detach())
 
-                s0 = torch.from_numpy(s0).to(device).requires_grad_(True)
-                act = torch.from_numpy(act).to(device).requires_grad_(True)
-                r = torch.from_numpy(r).to(device).requires_grad_(False)
+            if terminal:
+                break
+            state = next_state
 
-                t0 = timestep / float(max_num_steps)
-                t0 = torch.from_numpy(t0).to(device).requires_grad_(True)
+        # Do we update the memory buffer or not?
+        '''
+        action_sum = 0.
+        for seq in sequence:
 
-                # Predict a binary outcome
-                q_pred = model(s0, t0, act).view(-1)
-                q_pred = F.sigmoid(q_pred)
+            state, action, _, next_state, terminal, step = seq
 
-                loss = F.binary_cross_entropy_with_logits(q_pred, r.view(-1))
+            action_sum = action_sum + action
 
-                optimizer.zero_grad()
-                loss.backward()
-                torch.nn.utils.clip_grad_norm_(model.parameters(), max_grad_norm)
-                optimizer.step()
+            # Note that reward is the final reward of the episode
+            memory.add(state, action_sum, reward, next_state, terminal, step)
+        '''
 
-                if terminal:
-                    break
-                state = next_state
+        reward_queue.append(reward)
 
-            action_sum = 0.
-            for seq in sequence:
-
-                state, action, _, next_state, terminal, step = seq
-
-                action_sum = action_sum + action
-
-                # Note that reward is the final reward of the episode
-                memory.add(state, action_sum, reward, next_state, terminal, step)
-
-            reward_queue.append(reward)
-
-            print('Episode: %d, Step: %2d, Reward: %2.4f, Took: %2.4f' %
-                (episode, step, np.mean(reward_queue), time.time() - start))
+        print('Episode: %d, Step: %2d, Reward: %2.2f, Acc: %2.2f, Loss: %2.4f, Took: %2.4f' %
+            (episode, step, np.mean(reward_queue), np.mean(accuracies), 
+             np.mean(loss_queue), time.time() - start))
 
         if episode % 100 == 0:
             if not os.path.exists('checkpoints'):

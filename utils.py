@@ -109,6 +109,27 @@ class ReplayMemoryBuffer(Dataset):
                 np.float32(self.terminal[batch_idx]),
                 np.float32(self.timestep[batch_idx]))
 
+    def sample_episode(self, batch_size, batch_idx=None):
+        """Samples grasping episodes rather then single timesteps.
+
+        This function will sample :batch_size: episodes from memory, 
+        and return a generator that can be used to iterate over all 
+        sampled episodes one-by-one. This allows us to doo messy 
+        specification for uneven episode lengths
+        """
+     
+        # Find where each episode in the memory buffer starts
+        starts = np.where(self.timestep == 0)[0]
+
+        # Pick :batch_size: random episodes
+        batch_idx = np.random.choice(len(starts), batch_size, replace=False)
+
+        for idx in batch_idx:
+            
+            steps = starts[idx + 1] - starts[idx] 
+        
+            yield self[starts[idx]:starts[idx+1]]
+
     def load(self, load_dir, max_buffer_size=10000):
 
         print('Loading state ... ')

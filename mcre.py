@@ -5,7 +5,6 @@ from collections import deque
 import numpy as np
 import torch
 import torch.optim as optim
-from torch.autograd import Variable
 import pybullet_envs.bullet.kuka_diverse_object_gym_env as e
 
 from agent import Agent
@@ -31,13 +30,13 @@ if __name__ == '__main__':
     action_space = (conf.ACTION_SIZE,)
     reward_queue = deque(maxlen=100)
 
-    lrate = 1e-3
+    lrate = 1e-4
     decay = 0.
-    batch_size = 64
+    batch_size = 128
     max_grad_norm = 100
     gamma = 0.96
-    q_update_iter = 50
-
+    q_update_iter = 50 
+    
     out_channels = 32
     num_uniform = 64
     num_cem = 64
@@ -46,11 +45,11 @@ if __name__ == '__main__':
 
     model = Agent(in_channels, out_channels, conf.ACTION_SIZE,
                   num_uniform, num_cem, cem_iter, cem_elite).to(device)
-
-    q_target = copy.deepcopy(model)
+    # model.load_state_dict(torch.load('checkpoints/2000_model.pt'))
 
     memory = ReplayMemoryBuffer(conf.MAX_BUFFER_SIZE, state_space, action_space)
 
+    # Initialize memory with experience from disk, or collect new
     if os.path.exists(conf.DATA_DIR):
         memory.load(conf.DATA_DIR, conf.MAX_BUFFER_SIZE)
     else:
@@ -69,64 +68,86 @@ if __name__ == '__main__':
 
             # When we select an action to use in the simulaltor - use CEM
             state = state.transpose(2, 0, 1)[np.newaxis]
-            state = state.astype(np.float32) / 255.
-            
+            state = state.astype(np.float32) / 255. 
+
             cur_step = float(step) / float(conf.MAX_NUM_STEPS)
-            
+
             action = model.choose_action(state, cur_step)
             action = action.cpu().numpy().flatten()
 
             state, reward, terminal, _ = env.step(action)
 
-            # Train the networks;
-            s0, act, r, s1, term, timestep = memory.sample(batch_size)
+            # Sample data from the memory buffer & put on GPU
+            loss = 0
+            for batch in memory.sample_episode(batch_size):
 
-            s0 = torch.from_numpy(s0).to(device).requires_grad_(True)
-            act = torch.from_numpy(act).to(device).requires_grad_(True)
-            s1 = torch.from_numpy(s1).to(device).requires_grad_(False)
-            r = torch.from_numpy(r).to(device).requires_grad_(False)
-            term = torch.from_numpy(term).to(device).requires_grad_(False)
+                s0, act, r, _, _, timestep = batch
 
-            t0 = timestep / float(conf.MAX_NUM_STEPS)
-            t1 = (timestep + 1.) / float(conf.MAX_NUM_STEPS)
-            
-            t0 = torch.from_numpy(t0).to(device).requires_grad_(True)
-            t1 = torch.from_numpy(t1).to(device).requires_grad_(False)
+                s0 = torch.from_numpy(s0).to(device).requires_grad_(True)
+                act = torch.from_numpy(act).to(device).requires_grad_(True)
+                r = torch.from_numpy(r).to(device).requires_grad_(False)
 
-            # Predicts the Q value over the current state
-            pred = model(s0, t0, act).view(-1)
+                t0 = timestep / float(conf.MAX_NUM_STEPS)
+                t0 = torch.from_numpy(t0).to(device).requires_grad_(True)
 
-            # For the target, we find the action that maximizes the Q value for
-            # the current policy but use the Q value from the target policy
-            with torch.no_grad():
-                best_action = model.choose_action(s1, t1, use_cem=False)
+                # Train the models
+                pred = model(s0, t0, act).view(-1)  # saved action
+   
+                # Since the rewards in this environment are sparse (and only 
+                # occur at the final timestep of the episode), the loss
+                # \sum_{t'=t}^T \gamma^{t' - t} r(s_t, a_t) will always just 
+                # be the single-step reward
+                loss = loss + torch.sum((pred - r) ** 2)
 
-                target = q_target(s1, t1, best_action).view(-1)
-                target = r + (1. - term) * gamma * target
-
-            loss = torch.mean((pred - target) ** 2)
+            loss = loss / batch_size
 
             optimizer.zero_grad()
             loss.backward()
             torch.nn.utils.clip_grad_norm_(model.parameters(), max_grad_norm)
             optimizer.step()
 
-            # Update the target network
-            cur_iter += 1
-            if cur_iter % q_update_iter == 0:
-                q_target = copy.deepcopy(model)
-
             if terminal:
                 break
-        
+
         reward_queue.append(reward)
 
         print('Episode: %d, Step: %2d, Reward: %1.2f, Took: %2.4f' %
-             (episode, step, np.mean(reward_queue), time.time() - start))
+              (episode, step, np.mean(reward_queue), time.time() - start))
 
         if episode % 100 == 0:
-            checkpoint_dir = 'checkpoints/ddqn'
-            if not os.path.exists(checkpoint_dir):
-                os.makedirs(checkpoint_dir)
-            save_dir = os.path.join(checkpoint_dir, '%d_model.py'%episode)
-            torch.save(model.state_dict(), save_dir)
+            if not os.path.exists('checkpoints'):
+                os.makedirs('checkpoints')
+            torch.save(model.state_dict(), 'checkpoints/%d_model.pt' % episode)
+
+
+        '''
+        if episode % 100 != 0:
+            continue
+
+
+        # Check the learned policy
+        start = time.time()
+        test_rewards = deque(maxlen=100)
+        for test_episode in range(10):
+
+            state = test_env.reset()
+            state = state.transpose(2, 0, 1)[np.newaxis]
+
+            for step in range(conf.MAX_NUM_STEPS + 1):
+
+                # When we select an action to use in the simulaltor - use CEM
+                cur_step = float(step) / float(conf.MAX_NUM_STEPS)
+                action = model.choose_action(state, cur_step).flatten()
+
+                next_state, reward, terminal, _ = test_env.step(action)
+                next_state = next_state.transpose(2, 0, 1)[np.newaxis]
+
+                if terminal:
+                    break
+                state = next_state
+            test_rewards.append(reward)
+
+        print('\nTEST REWARD:  %1.2f, Took: %2.4f\n' %
+              (np.mean(test_rewards), time.time() - start))
+        '''
+        

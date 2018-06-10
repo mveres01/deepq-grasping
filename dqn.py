@@ -33,10 +33,10 @@ if __name__ == '__main__':
 
     lrate = 1e-3
     decay = 0.
-    batch_size = 32
+    batch_size = 64
     max_grad_norm = 100
     gamma = 0.96
-    q_update_iter = 50 
+    q_update_iter = 25 
     
     out_channels = 32
     num_uniform = 64
@@ -128,7 +128,6 @@ if __name__ == '__main__':
             if not os.path.exists('checkpoints'):
                 os.makedirs('checkpoints')
             torch.save(model.state_dict(), 'checkpoints/%d_model.pt' % episode)
-
 
         '''
         if episode % 100 != 0:

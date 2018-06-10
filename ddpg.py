@@ -42,6 +42,9 @@ class Actor(nn.Module):
 
 if __name__ == '__main__':
 
+    torch.manual_see(1234)
+    np.random.seed(1234)
+
     render_env = False
     remove_height_hack = True
     data_dir = 'data' if remove_height_hack else 'data_height_hack'

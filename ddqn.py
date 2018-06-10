@@ -15,6 +15,9 @@ device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 if __name__ == '__main__':
 
+    torch.manual_seed(1234)
+    np.random.seed(1234)
+
     render_env = False
     remove_height_hack = True
     use_precollected = True

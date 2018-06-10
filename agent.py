@@ -82,7 +82,7 @@ class Agent(nn.Module):
             # Sample a few actions from the Gaussian parameterized by (mu, var)
             size = (self.num_cem, self.action_size)
             action = torch.normal(mu.expand(*size), std.expand(*size)).to(device)
-            #action = action.clamp(-1, 1)
+            action = action.clamp(-1, 1)
 
             # (s, a) -> q 
             q = self._forward_q(hidden, action).view(-1)

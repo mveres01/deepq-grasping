@@ -78,18 +78,11 @@ class ReplayMemoryBuffer(Dataset):
         return self.max_size
 
     def __getitem__(self, idx):
-        state = np.float32(self.state[idx]) / 255.
-        action = np.float32(self.action[idx])
-        reward = np.float32(self.reward[idx])
-        next_state = np.float32(self.next_state[idx]) / 255.
-        terminal = np.float32(self.terminal[idx])
-        timestep = np.float32(self.timestep[idx])
-
-        return (state, action, reward, next_state, terminal, timestep)
+        return self.sample(1, idx)
 
     def add(self, state, action, reward, next_state, terminal, timestep):
 
-        batch_size = 1
+        batch_size = state.shape[0]
         store_idx = np.roll(np.arange(self.max_size), -self.cur_idx)[:batch_size]
 
         self.state[store_idx] = state
@@ -103,10 +96,11 @@ class ReplayMemoryBuffer(Dataset):
             self.is_full = True
         self.cur_idx = (self.cur_idx + batch_size) % self.max_size
 
-    def sample(self, batch_size):
+    def sample(self, batch_size, batch_idx=None):
 
-        upper_idx = self.max_size if self.is_full else self.cur_idx
-        batch_idx = np.random.randint(0, upper_idx, batch_size)
+        if batch_idx is None:
+            upper_idx = self.max_size if self.is_full else self.cur_idx
+            batch_idx = np.random.randint(0, upper_idx, batch_size)
 
         return (np.float32(self.state[batch_idx]) / 255.,
                 np.float32(self.action[batch_idx]),
@@ -142,6 +136,7 @@ class ReplayMemoryBuffer(Dataset):
             self.timestep = np.load(f)[:max_buffer_size].astype(np.float32)
 
         self.is_full = True
+        self.cur_idx = self.state.shape[0]
         self.max_buffer_size = self.state.shape[0]
 
     def save(self, save_dir='.'):

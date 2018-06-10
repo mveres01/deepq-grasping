@@ -32,6 +32,9 @@ device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 if __name__ == '__main__':
 
+    torch.manual_seed(1234)
+    np.random.seed(1234)
+
     render_env = False
     remove_height_hack = True
     data_dir = 'data' if remove_height_hack else 'data_height_hack'
@@ -104,14 +107,10 @@ if __name__ == '__main__':
             state_ = state.astype(np.float32) / 255.
             cur_step = float(step) / float(max_num_steps)
 
-            # NOTE: Actions are being clipped to [-1, 1] in CEM method
-            # TODO: Make sure these actions are plausible within system, 
-            # e.g. the position vector is no larger then [-1, 1]
+            # NOTE: Action is currently limited to [-1, 1] in agent.py
             action = model.choose_action(state_, cur_step)
 
             action_step = action.cpu().numpy().flatten()
-            action_step = action_step / (float(max_num_steps) - step)
-
 
             next_state, reward, terminal, _ = env.step(action_step)
             next_state = next_state.transpose(2, 0, 1)[np.newaxis]
@@ -131,6 +130,10 @@ if __name__ == '__main__':
             # Predict a binary outcome
             q_pred = model(s0, t0, act).view(-1)
 
+            
+            #if step == 0:
+            #    np.set_printoptions(2)
+            #    print('q_pred: \n', q_pred.cpu().data.numpy()[:10])
             loss = torch.nn.BCEWithLogitsLoss()(q_pred, r.view(-1))
             
             optimizer.zero_grad()
@@ -142,9 +145,9 @@ if __name__ == '__main__':
             q_pred = q_pred.detach()
             q_pred[q_pred >= 0.5] = 1.
             q_pred[q_pred < 0.5] = 0.
-            acc = (q_pred== r).mean()
-            accuracies.append(acc.cpu().data.numpy())
-            loss_queue.append(loss.cpu().detach())
+            acc = (q_pred.cpu().data.numpy() == r.cpu().data.numpy()).mean()
+            accuracies.append(acc)
+            loss_queue.append(loss.detach().cpu().numpy())
 
             if terminal:
                 break

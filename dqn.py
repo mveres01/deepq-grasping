@@ -24,22 +24,22 @@ env = e.KukaDiverseObjectEnv(height=conf.NUM_ROWS,
                              isDiscrete=conf.IS_DISCRETE)
 
 
+print('NOTE: Standardizing state rep to [-0.5, 0.5]')
+
 if __name__ == '__main__':
 
     in_channels = 3
-    state_space = (3, conf.NUM_ROWS, conf.NUM_COLS)
-    action_space = (conf.ACTION_SIZE,)
     reward_queue = deque(maxlen=100)
 
     lrate = 1e-3
-    decay = 0.
+    decay = 1e-3
     batch_size = 64
     max_grad_norm = 100
-    gamma = 0.96
-    q_update_iter = 25 
+    gamma = 0.9
+    q_update_iter = 10 
     
     out_channels = 32
-    num_uniform = 64
+    num_uniform = 16
     num_cem = 64
     cem_iter = 3
     cem_elite = 6
@@ -50,7 +50,9 @@ if __name__ == '__main__':
 
     q_target = copy.deepcopy(model)
 
-    memory = ReplayMemoryBuffer(conf.MAX_BUFFER_SIZE, state_space, action_space)
+    memory = ReplayMemoryBuffer(conf.MAX_BUFFER_SIZE, 
+                                conf.STATE_SPACE,
+                                conf.ACTION_SPACE)
 
     # Initialize memory with experience from disk, or collect new
     if os.path.exists(conf.DATA_DIR):
@@ -71,7 +73,7 @@ if __name__ == '__main__':
 
             # When we select an action to use in the simulaltor - use CEM
             state = state.transpose(2, 0, 1)[np.newaxis]
-            state = state.astype(np.float32) / 255. 
+            state = state.astype(np.float32) / 255. - 0.5
 
             cur_step = float(step) / float(conf.MAX_NUM_STEPS)
 
@@ -83,9 +85,9 @@ if __name__ == '__main__':
             # Sample data from the memory buffer & put on GPU
             s0, act, r, s1, term, timestep = memory.sample(batch_size)
 
-            s0 = torch.from_numpy(s0).to(device).requires_grad_(True)
+            s0 = torch.from_numpy(s0).to(device).requires_grad_(True) - 0.5
             act = torch.from_numpy(act).to(device).requires_grad_(True)
-            s1 = torch.from_numpy(s1).to(device).requires_grad_(False)
+            s1 = torch.from_numpy(s1).to(device).requires_grad_(False) - 0.5
             r = torch.from_numpy(r).to(device).requires_grad_(False)
             term = torch.from_numpy(term).to(device).requires_grad_(False)
 
@@ -104,7 +106,7 @@ if __name__ == '__main__':
             with torch.no_grad():
                 target = r + (1. - term) * gamma * q_target(s1, t1).view(-1)
    
-            loss = torch.mean((pred - target) ** 2)
+            loss = torch.sum((pred - target) ** 2)
 
             optimizer.zero_grad()
             loss.backward()
@@ -124,39 +126,17 @@ if __name__ == '__main__':
         print('Episode: %d, Step: %2d, Reward: %1.2f, Took: %2.4f' %
               (episode, step, np.mean(reward_queue), time.time() - start))
 
+
+        if episode % 50 == 0:
+            for name, param in model.named_parameters():
+                try:
+                    weight = torch.norm(param.data)
+                    grad = torch.norm(param.grad)
+                    print(name, '\t', '%2.4f'%weight, '%2.4f'%grad)
+                except Exception as e:
+                    pass
+
         if episode % 100 == 0:
             if not os.path.exists('checkpoints'):
                 os.makedirs('checkpoints')
             torch.save(model.state_dict(), 'checkpoints/%d_model.pt' % episode)
-
-        '''
-        if episode % 100 != 0:
-            continue
-
-
-        # Check the learned policy
-        start = time.time()
-        test_rewards = deque(maxlen=100)
-        for test_episode in range(10):
-
-            state = test_env.reset()
-            state = state.transpose(2, 0, 1)[np.newaxis]
-
-            for step in range(conf.MAX_NUM_STEPS + 1):
-
-                # When we select an action to use in the simulaltor - use CEM
-                cur_step = float(step) / float(conf.MAX_NUM_STEPS)
-                action = model.choose_action(state, cur_step).flatten()
-
-                next_state, reward, terminal, _ = test_env.step(action)
-                next_state = next_state.transpose(2, 0, 1)[np.newaxis]
-
-                if terminal:
-                    break
-                state = next_state
-            test_rewards.append(reward)
-
-        print('\nTEST REWARD:  %1.2f, Took: %2.4f\n' %
-              (np.mean(test_rewards), time.time() - start))
-        '''
-        

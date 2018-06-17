@@ -122,7 +122,7 @@ class ReplayMemoryBuffer(Dataset):
         starts = np.where(self.timestep == 0)[0]
 
         # Pick :batch_size: random episodes
-        batch_idx = np.random.choice(len(starts), batch_size, replace=False)
+        batch_idx = np.random.choice(len(starts) - 1, batch_size, replace=False)
 
         for idx in batch_idx:
             

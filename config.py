@@ -8,6 +8,8 @@ class Config(object):
     NUM_COLS = 64
     IS_DISCRETE = False
     
+    STATE_SPACE = (3, NUM_ROWS, NUM_COLS)
+    ACTION_SPACE = (ACTION_SIZE, )
     MAX_NUM_EPISODES = 5000
     MAX_NUM_STEPS = 15
     MAX_BUFFER_SIZE = 100000

@@ -31,15 +31,15 @@ if __name__ == '__main__':
     action_space = (conf.ACTION_SIZE,)
     reward_queue = deque(maxlen=100)
 
-    lrate = 1e-3
-    decay = 0.
+    lrate = 5e-4
+    decay = 1e-3
     batch_size = 64
-    max_grad_norm = 100
-    gamma = 0.96
+    max_grad_norm = 1000
+    gamma = 0.9
     q_update_iter = 50
 
     out_channels = 32
-    num_uniform = 64
+    num_uniform = 16
     num_cem = 64
     cem_iter = 3
     cem_elite = 6
@@ -49,7 +49,9 @@ if __name__ == '__main__':
 
     q_target = copy.deepcopy(model)
 
-    memory = ReplayMemoryBuffer(conf.MAX_BUFFER_SIZE, state_space, action_space)
+    memory = ReplayMemoryBuffer(conf.MAX_BUFFER_SIZE, 
+                                conf.STATE_SPACE,
+                                conf.ACTION_SPACE)
 
     if os.path.exists(conf.DATA_DIR):
         memory.load(conf.DATA_DIR, conf.MAX_BUFFER_SIZE)
@@ -57,6 +59,7 @@ if __name__ == '__main__':
         collect_experience(env, memory, print_status_every=100)
         memory.save(conf.DATA_DIR)
 
+    #optimizer = optim.Adam(model.parameters(), lr=lrate, weight_decay=decay)
     optimizer = optim.Adam(model.parameters(), lr=lrate, weight_decay=decay)
 
     cur_iter = 0
@@ -69,7 +72,7 @@ if __name__ == '__main__':
 
             # When we select an action to use in the simulaltor - use CEM
             state = state.transpose(2, 0, 1)[np.newaxis]
-            state = state.astype(np.float32) / 255.
+            state = state.astype(np.float32) / 255. - 0.5
             
             cur_step = float(step) / float(conf.MAX_NUM_STEPS)
             
@@ -81,9 +84,9 @@ if __name__ == '__main__':
             # Train the networks;
             s0, act, r, s1, term, timestep = memory.sample(batch_size)
 
-            s0 = torch.from_numpy(s0).to(device).requires_grad_(True)
+            s0 = torch.from_numpy(s0).to(device).requires_grad_(True) - 0.5
             act = torch.from_numpy(act).to(device).requires_grad_(True)
-            s1 = torch.from_numpy(s1).to(device).requires_grad_(False)
+            s1 = torch.from_numpy(s1).to(device).requires_grad_(False) - 0.5
             r = torch.from_numpy(r).to(device).requires_grad_(False)
             term = torch.from_numpy(term).to(device).requires_grad_(False)
 
@@ -104,11 +107,11 @@ if __name__ == '__main__':
                 target = q_target(s1, t1, best_action).view(-1)
                 target = r + (1. - term) * gamma * target
 
-            loss = torch.mean((pred - target) ** 2)
+            loss = torch.sum((pred - target) ** 2)
 
             optimizer.zero_grad()
             loss.backward()
-            torch.nn.utils.clip_grad_norm_(model.parameters(), max_grad_norm)
+            #torch.nn.utils.clip_grad_norm_(model.parameters(), max_grad_norm)
             optimizer.step()
 
             # Update the target network

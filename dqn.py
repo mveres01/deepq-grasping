@@ -1,142 +1,75 @@
 import os
 import copy
 import time
-from collections import deque
 import numpy as np
 import torch
 import torch.optim as optim
-import pybullet_envs.bullet.kuka_diverse_object_gym_env as e
 
-from agent import Agent
-from config import Config as conf
-from utils import ReplayMemoryBuffer, collect_experience
-
-device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-
-np.random.seed(conf.SEED)
-torch.manual_seed(conf.SEED)
-
-env = e.KukaDiverseObjectEnv(height=conf.NUM_ROWS,
-                             width=conf.NUM_COLS,
-                             removeHeightHack=conf.REMOVE_HEIGHT_HACK,
-                             maxSteps=conf.MAX_NUM_STEPS,
-                             renders=conf.RENDER_ENV,
-                             isDiscrete=conf.IS_DISCRETE)
+from agent import BaseNetwork
 
 
-print('NOTE: Standardizing state rep to [-0.5, 0.5]')
-
-if __name__ == '__main__':
-
-    in_channels = 3
-    reward_queue = deque(maxlen=100)
-
-    lrate = 1e-3
-    decay = 1e-3
-    batch_size = 64
-    max_grad_norm = 100
-    gamma = 0.9
-    q_update_iter = 10 
+class DQN:
     
-    out_channels = 32
-    num_uniform = 16
-    num_cem = 64
-    cem_iter = 3
-    cem_elite = 6
+    def __init__(self, num_features, decay, lrate, num_uniform, num_cem,
+                 cem_iter, cem_elite, checkpoint, action_size, in_channels, 
+                 device, **kwargs):
 
-    model = Agent(in_channels, out_channels, conf.ACTION_SIZE,
-                  num_uniform, num_cem, cem_iter, cem_elite).to(device)
-    # model.load_state_dict(torch.load('checkpoints/2000_model.pt'))
+        self.device = device
 
-    q_target = copy.deepcopy(model)
+        self.model = BaseNetwork(in_channels, num_features, action_size, 
+                                 num_uniform, num_cem, cem_iter, cem_elite)\
+                                .to(device)
+        self.target = copy.deepcopy(self.model)
 
-    memory = ReplayMemoryBuffer(conf.MAX_BUFFER_SIZE, 
-                                conf.STATE_SPACE,
-                                conf.ACTION_SPACE)
-
-    # Initialize memory with experience from disk, or collect new
-    if os.path.exists(conf.DATA_DIR):
-        memory.load(conf.DATA_DIR, conf.MAX_BUFFER_SIZE)
-    else:
-        collect_experience(env, memory, print_status_every=100)
-        memory.save(conf.DATA_DIR)
-
-    optimizer = optim.Adam(model.parameters(), lr=lrate, weight_decay=decay)
-
-    cur_iter = 0
-    for episode in range(conf.MAX_NUM_EPISODES):
-
-        start = time.time()
-
-        state = env.reset()
-        for step in range(conf.MAX_NUM_STEPS + 1):
-
-            # When we select an action to use in the simulaltor - use CEM
-            state = state.transpose(2, 0, 1)[np.newaxis]
-            state = state.astype(np.float32) / 255. - 0.5
-
-            cur_step = float(step) / float(conf.MAX_NUM_STEPS)
-
-            action = model.choose_action(state, cur_step)
-            action = action.cpu().numpy().flatten()
-
-            state, reward, terminal, _ = env.step(action)
-
-            # Sample data from the memory buffer & put on GPU
-            s0, act, r, s1, term, timestep = memory.sample(batch_size)
-
-            s0 = torch.from_numpy(s0).to(device).requires_grad_(True) - 0.5
-            act = torch.from_numpy(act).to(device).requires_grad_(True)
-            s1 = torch.from_numpy(s1).to(device).requires_grad_(False) - 0.5
-            r = torch.from_numpy(r).to(device).requires_grad_(False)
-            term = torch.from_numpy(term).to(device).requires_grad_(False)
-
-            t0 = timestep / float(conf.MAX_NUM_STEPS)
-            t1 = (timestep + 1.) / float(conf.MAX_NUM_STEPS)
+        self.optimizer = optim.Adam(self.model.parameters(), 
+                                    lrate, weight_decay=decay)
         
-            t0 = torch.from_numpy(t0).to(device).requires_grad_(True)
-            t1 = torch.from_numpy(t1).to(device).requires_grad_(False)
+        #self.scheduler = optim.lr_scheduler.StepLR(self.optimizer, 1, 0.999)
 
-            # Train the models
-            pred = model(s0, t0, act).view(-1)  # saved action
+    def load_checkpoint(self, checkpoint_dir):
+        if not os.path.exists(checkpoint_dir):
+            raise Exception('No checkpoint directory <%s>'%checkpoint_dir)
+        self.model.load_state_dict(torch.load(checkpoint_dir + '/model.pt'))
 
-            # We don't calculate a gradient for the target network; these
-            # weights instead get updated by copying the prediction network
-            # weights every few training iterations
-            with torch.no_grad():
-                target = r + (1. - term) * gamma * q_target(s1, t1).view(-1)
-   
-            loss = torch.sum((pred - target) ** 2)
+    def save_checkpoint(self, checkpoint_dir):
+        if not os.path.exists(checkpoint_dir):
+            os.makedirs(checkpoint_dir)
+        torch.save(self.model.state_dict(), checkpoint_dir + '/model.pt')
 
-            optimizer.zero_grad()
-            loss.backward()
-            torch.nn.utils.clip_grad_norm_(model.parameters(), max_grad_norm)
-            optimizer.step()
+    def sample_action(self, state, timestep, explore_prob):
+        return self.model.sample_action(state, timestep, explore_prob)
 
-            # Update the target network
-            cur_iter += 1
-            if cur_iter % q_update_iter == 0:
-                q_target = copy.deepcopy(model)
+    def train(self, memory, gamma, batch_size, **kwargs):
 
-            if terminal:
-                break
+        # Sample data from the memory buffer & put on GPU
+        s0, act, r, s1, term, timestep = memory.sample(batch_size)
 
-        reward_queue.append(reward)
+        s0 = torch.from_numpy(s0).to(self.device)
+        act = torch.from_numpy(act).to(self.device)
+        r = torch.from_numpy(r).to(self.device)
+        s1 = torch.from_numpy(s1).to(self.device)
+        term = torch.from_numpy(term).to(self.device)
 
-        print('Episode: %d, Step: %2d, Reward: %1.2f, Took: %2.4f' %
-              (episode, step, np.mean(reward_queue), time.time() - start))
+        t0 = torch.from_numpy(timestep).to(self.device)
+        t1 = torch.from_numpy(timestep + 1).to(self.device)
 
+        # Train the models
+        pred = self.model(s0, t0, act).view(-1)  # saved action
 
-        if episode % 50 == 0:
-            for name, param in model.named_parameters():
-                try:
-                    weight = torch.norm(param.data)
-                    grad = torch.norm(param.grad)
-                    print(name, '\t', '%2.4f'%weight, '%2.4f'%grad)
-                except Exception as e:
-                    pass
+        # We don't calculate a gradient for the target network; these
+        # weights instead get updated by copying the prediction network
+        # weights every few training iterations
+        with torch.no_grad():
+            label = r + (1. - term) * gamma * self.target(s1, t1).view(-1)
 
-        if episode % 100 == 0:
-            if not os.path.exists('checkpoints'):
-                os.makedirs('checkpoints')
-            torch.save(model.state_dict(), 'checkpoints/%d_model.pt' % episode)
+        loss = torch.sum((pred - label) ** 2)
+
+        self.optimizer.zero_grad()
+        loss.backward()
+        self.optimizer.step()
+
+        return loss.detach()
+
+    def update(self):
+        self.target = copy.deepcopy(self.model)
+        #self.scheduler.step()

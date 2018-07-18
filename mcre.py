@@ -7,7 +7,7 @@ import torch
 import torch.optim as optim
 import pybullet_envs.bullet.kuka_diverse_object_gym_env as e
 
-from agent import Agent
+from agent import BaseNetwork
 from config import Config as conf
 from utils import ReplayMemoryBuffer, collect_experience
 
@@ -43,7 +43,7 @@ if __name__ == '__main__':
     cem_iter = 3
     cem_elite = 6
 
-    model = Agent(in_channels, out_channels, conf.ACTION_SIZE,
+    model = BaseNetwork(in_channels, out_channels, conf.ACTION_SIZE,
                   num_uniform, num_cem, cem_iter, cem_elite).to(device)
     # model.load_state_dict(torch.load('checkpoints/2000_model.pt'))
 

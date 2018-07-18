@@ -59,10 +59,13 @@ def collect_experience(env, memory, print_status_every=25):
                 print('Memory capacity: %d/%d' % (memory.cur_idx, memory.max_size))
 
 
-class ReplayMemoryBuffer(Dataset):
+class ReplayBuffer(Dataset):
     def __init__(self, max_size, state_size, action_size):
+        
         if not isinstance(state_size, tuple):
             raise Exception(':param state_size: must be type <tuple>')
+        if not isinstance(action_size, tuple):
+            action_size = (action_size, )
 
         self.cur_idx = 0
         self.is_full = False
@@ -215,8 +218,12 @@ class ReplayMemoryBuffer(Dataset):
 
             cur_path = 0
             for i in range(end - start):
-                cur_path = cur_path + self.action[start + i]
+
+                action = self.action[start + i].copy()
+
                 self.action[start + i] = path - cur_path
+               
+                cur_path = cur_path + action
 
             assert np.all(cur_path - path == 0)
             assert np.all(self.reward[start:end - 1] == 0)

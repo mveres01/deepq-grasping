@@ -21,8 +21,7 @@ class StateNetwork(nn.Module):
             nn.ReLU(),
             nn.Conv2d(out_channels, out_channels, kernel, padding=2),
             nn.MaxPool2d(2),
-            nn.ReLU()
-            )
+            nn.ReLU())
 
     def forward(self, image, timestep):
         """Computes a hidden rep for the image & concatenates timestep."""
@@ -78,6 +77,7 @@ class StateActionNetwork(nn.Module):
 
 
 class BaseNetwork(nn.Module):
+
     def __init__(self, in_channels, out_channels, action_size,
                  num_uniform, num_cem, cem_iter, cem_elite, bounds=(-1, 1)):
         super(BaseNetwork, self).__init__()

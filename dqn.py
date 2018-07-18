@@ -9,21 +9,21 @@ from agent import BaseNetwork
 
 
 class DQN:
-    
+
     def __init__(self, num_features, decay, lrate, num_uniform, num_cem,
-                 cem_iter, cem_elite, checkpoint, action_size, in_channels, 
+                 cem_iter, cem_elite, checkpoint, action_size, in_channels,
                  device, **kwargs):
 
         self.device = device
 
-        self.model = BaseNetwork(in_channels, num_features, action_size, 
+        self.model = BaseNetwork(in_channels, num_features, action_size,
                                  num_uniform, num_cem, cem_iter, cem_elite)\
                                 .to(device)
         self.target = copy.deepcopy(self.model)
 
-        self.optimizer = optim.Adam(self.model.parameters(), 
+        self.optimizer = optim.Adam(self.model.parameters(),
                                     lrate, weight_decay=decay)
-        
+
         #self.scheduler = optim.lr_scheduler.StepLR(self.optimizer, 1, 0.999)
 
     def load_checkpoint(self, checkpoint_dir):
@@ -54,7 +54,7 @@ class DQN:
         t1 = torch.from_numpy(timestep + 1).to(self.device)
 
         # Train the models
-        pred = self.model(s0, t0, act).view(-1)  # saved action
+        pred = self.model(s0, t0, act).view(-1)
 
         # We don't calculate a gradient for the target network; these
         # weights instead get updated by copying the prediction network

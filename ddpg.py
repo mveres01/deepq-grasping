@@ -1,29 +1,13 @@
 import os
 import copy
 import time
-from collections import deque
 import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
-import pybullet_envs.bullet.kuka_diverse_object_gym_env as e
 
 from agent import BaseNetwork, StateNetwork
-from config import Config as conf
-from utils import ReplayMemoryBuffer, collect_experience
-
-device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-
-np.random.seed(conf.SEED)
-torch.manual_seed(conf.SEED)
-
-env = e.KukaDiverseObjectEnv(height=conf.NUM_ROWS,
-                             width=conf.NUM_COLS,
-                             removeHeightHack=conf.REMOVE_HEIGHT_HACK,
-                             maxSteps=conf.MAX_NUM_STEPS,
-                             renders=conf.RENDER_ENV,
-                             isDiscrete=conf.IS_DISCRETE)
 
 
 class Actor(nn.Module):
@@ -31,13 +15,13 @@ class Actor(nn.Module):
         super(Actor, self).__init__()
 
         self.state_net = StateNetwork(in_channels, out_channels)
-        self.fc1 = nn.Linear(7 * 7 * (out_channels + 1), 128)
-        self.fc2 = nn.Linear(128, 128)
-        self.fc3 = nn.Linear(128, action_size)
+        self.fc1 = nn.Linear(7 * 7 * (out_channels + 1), out_channels)
+        self.fc2 = nn.Linear(out_channels, out_channels)
+        self.fc3 = nn.Linear(out_channels, action_size)
 
-        for p in self.parameters():
-            if len(p.shape) > 1:
-                nn.init.xavier_uniform_(p)
+        for param in self.parameters():
+            if len(param.shape) > 1:
+                nn.init.xavier_uniform_(param)
 
     def forward(self, image, cur_time):
 
@@ -50,118 +34,93 @@ class Actor(nn.Module):
         return out
 
 
-if __name__ == '__main__':
+class DDPG:
 
-    in_channels = 3
-    state_space = (3, conf.NUM_ROWS, conf.NUM_COLS)
-    action_space = (conf.ACTION_SIZE,)
-    reward_queue = deque(maxlen=100)
+    def __init__(self, num_features, decay, lrate, num_uniform, num_cem,
+                 cem_iter, cem_elite, checkpoint, action_size, in_channels,
+                 device, **kwargs):
 
-    lrate = 1e-3
-    decay = 0.
-    batch_size = 32
-    max_grad_norm = 100
-    gamma = 0.96
-    q_update_iter = 50
+        self.device = device
 
-    out_channels = 32
-    num_uniform = 64
-    num_cem = 64
-    cem_iter = 3
-    cem_elite = 6
+        self.actor = Actor(in_channels, num_features, action_size).to(device)
 
-    actor = Actor(in_channels, out_channels, conf.ACTION_SIZE).to(device)
-    critic = BaseNetwork(in_channels, out_channels, conf.ACTION_SIZE, 0, 0, 0, 0).to(device)
+        self.critic = BaseNetwork(in_channels, num_features, action_size,
+                                  num_uniform, num_cem, cem_iter, cem_elite)\
+                                 .to(device)
 
-    actor_target = copy.deepcopy(actor)
-    critic_target = copy.deepcopy(critic)
+        self.atarget = copy.deepcopy(self.actor)
+        self.ctarget = copy.deepcopy(self.critic)
 
-    memory = ReplayMemoryBuffer(conf.MAX_BUFFER_SIZE, state_space, action_space)
+        self.aoptimizer = optim.Adam(self.actor.parameters(), lrate,
+                                     weight_decay=decay)
+        self.coptimizer = optim.Adam(self.critic.parameters(), lrate,
+                                     weight_decay=decay)
 
-    if os.path.exists(conf.DATA_DIR):
-        memory.load(conf.DATA_DIR, conf.MAX_BUFFER_SIZE)
-    else:
-        collect_experience(env, memory, print_status_every=100)
-        memory.save(conf.DATA_DIR)
+    def load_checkpoint(self, checkpoint_dir):
+        if not os.path.exists(checkpoint_dir):
+            raise Exception('No checkpoint directory <%s>'%checkpoint_dir)
+        self.actor.load_state_dict(torch.load(checkpoint_dir + '/actor.pt'))
+        self.critic.load_state_dict(torch.load(checkpoint_dir + '/critic.pt'))
 
-    actor_optim = optim.Adam(actor.parameters(), lrate, weight_decay=decay)
-    critic_optim = optim.Adam(critic.parameters(), lrate, weight_decay=decay)
+    def save_checkpoint(self, checkpoint_dir):
+        if not os.path.exists(checkpoint_dir):
+            os.makedirs(checkpoint_dir)
+        torch.save(self.actor.state_dict(), checkpoint_dir + '/actor.pt')
+        torch.save(self.critic.state_dict(), checkpoint_dir + '/critic.pt')
 
-    cur_iter = 0
-    for episode in range(conf.MAX_NUM_EPISODES):
+    def sample_action(self, state, timestep, explore_prob):
+        with torch.no_grad():
+            if np.random.random() < explore_prob:
+                return np.random.uniform(-1, 1)
 
-        start = time.time()
+            if isinstance(state, np.ndarray):
+                state = torch.from_numpy(state).to(self.device)
+            if isinstance(timestep, float):
+                timestep = torch.tensor([timestep], device=self.device)
 
-        state = env.reset()
-        for step in range(conf.MAX_NUM_STEPS + 1):
+            return self.actor(state, timestep).cpu().numpy().flatten()
 
-            state = state.transpose(2, 0, 1)[np.newaxis]
-            state = state.astype(np.float32) / 255.
-            state = torch.from_numpy(state).to(device)
+    def train(self, memory, gamma, batch_size, **kwargs):
 
-            cur_step = float(step) / float(conf.MAX_NUM_STEPS)
-            cur_step = torch.tensor([cur_step], device=device)
+        s0, act, r, s1, term, timestep = memory.sample(batch_size)
 
-            with torch.no_grad():
-                action = actor(state, cur_step).cpu().data.numpy().flatten()
+        s0 = torch.from_numpy(s0).to(self.device)
+        act = torch.from_numpy(act).to(self.device)
+        s1 = torch.from_numpy(s1).to(self.device)
+        r = torch.from_numpy(r).to(self.device)
+        term = torch.from_numpy(term).to(self.device)
 
-            # Add some exploration noise
-            action = action + np.random.normal(0, 0.05, action.shape)
-            action = np.clip(action, -1., 1.)
+        t0 = torch.from_numpy(timestep).to(self.device)
+        t1 = torch.from_numpy(timestep + 1.).to(self.device)
 
-            state, reward, terminal, _ = env.step(action)
+        # Train the models
+        pred = self.critic(s0, t0, act).view(-1)
 
-            # Train the networks;
-            s0, act, r, s1, term, timestep = memory.sample(batch_size)
+        # Training the critic is through Mean Squared Error
+        with torch.no_grad():
 
-            s0 = torch.from_numpy(s0).to(device).requires_grad_(True)
-            act = torch.from_numpy(act).to(device).requires_grad_(True)
-            s1 = torch.from_numpy(s1).to(device).requires_grad_(False)
-            r = torch.from_numpy(r).to(device).requires_grad_(False)
-            term = torch.from_numpy(term).to(device).requires_grad_(False)
+            at = self.atarget(s1, t1)
+            qt = self.ctarget(s1, t1, at).view(-1)
+            target = r + (1. - term) * gamma * qt
 
-            t0 = timestep / float(conf.MAX_NUM_STEPS)
-            t1 = (timestep + 1.) / float(conf.MAX_NUM_STEPS)
+        loss = torch.sum((pred - target) ** 2)
 
-            t0 = torch.from_numpy(t0).to(device).requires_grad_(True)
-            t1 = torch.from_numpy(t1).to(device).requires_grad_(False)
+        self.coptimizer.zero_grad()
+        loss.backward()
+        self.coptimizer.step()
+        self.coptimizer.zero_grad()
 
-            # Train the models
-            pred = critic(s0, t0, act).view(-1)
+        # Update the actor network by following the policy gradient
+        q_pred = -self.critic(s0, t0, self.actor(s0, t0)).sum()
 
-            # Training the critic is through Mean Squared Error
-            with torch.no_grad():
-                a_target = actor_target(s1, t1)
-                q_target = critic_target(s1, t1, a_target).view(-1)
-                target = r + (1. - term) * gamma * q_target
+        self.aoptimizer.zero_grad()
+        q_pred.backward()
+        self.aoptimizer.step()
+        self.aoptimizer.zero_grad()
 
-            loss = torch.mean((pred - target) ** 2)
+        return loss.detach()
 
-            critic_optim.zero_grad()
-            loss.backward()
-            torch.nn.utils.clip_grad_norm_(critic.parameters(), max_grad_norm)
-            critic_optim.step()
-            critic_optim.zero_grad()
+    def update(self):
+        self.atarget = copy.deepcopy(self.actor)
+        self.ctarget = copy.deepcopy(self.critic)
 
-            # Update the actor network by following the policy gradient
-            q_pred = -critic(s0, t0, actor(s0, t0)).mean()
-
-            actor_optim.zero_grad()
-            q_pred.backward()
-            torch.nn.utils.clip_grad_norm_(actor.parameters(), max_grad_norm)
-            actor_optim.step()
-            actor_optim.zero_grad()
-
-            # Update the target network
-            cur_iter += 1
-            if cur_iter % q_update_iter == 0:
-                actor_target = copy.deepcopy(actor)
-                critic_target = copy.deepcopy(critic)
-
-            if terminal:
-                break
-
-        reward_queue.append(reward)
-
-        print('Episode: %d, Step: %2d, Reward: %1.2f, Took: %2.4f' %
-              (episode, step, np.mean(reward_queue), time.time() - start))

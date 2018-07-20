@@ -8,12 +8,12 @@ DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 class StateNetwork(nn.Module):
     """Used to compute a nonlinear representation for the state."""
-    
-    def __init__(self, in_channels, out_channels, kernel=5):
+
+    def __init__(self, out_channels, kernel=5):
         super(StateNetwork, self).__init__()
 
         self.net = nn.Sequential(
-            nn.Conv2d(in_channels, out_channels, kernel, padding=1),
+            nn.Conv2d(3, out_channels, kernel, padding=1),
             nn.MaxPool2d(2),
             nn.ReLU(),
             nn.Conv2d(out_channels, out_channels, kernel, padding=2),
@@ -23,15 +23,14 @@ class StateNetwork(nn.Module):
             nn.MaxPool2d(2),
             nn.ReLU())
 
-    def forward(self, image, timestep):
-        """Computes a hidden rep for the image & concatenates timestep."""
+    def forward(self, image, time):
+        """Computes a hidden rep for the image & concatenates time."""
 
         out = self.net(image)
 
-        timestep = timestep.view(-1, 1, 1, 1)
-        timestep = timestep.expand(-1, 1, out.size(2), out.size(3))
+        time = time.view(-1, 1, 1, 1).expand(-1, 1, out.size(2), out.size(3))
 
-        out = torch.cat((out, timestep), dim=1)
+        out = torch.cat((out, time), dim=1)
         return out
 
 
@@ -78,8 +77,8 @@ class StateActionNetwork(nn.Module):
 
 class BaseNetwork(nn.Module):
 
-    def __init__(self, in_channels, out_channels, action_size,
-                 num_uniform, num_cem, cem_iter, cem_elite, bounds=(-1, 1)):
+    def __init__(self, out_channels, action_size, num_uniform, 
+                 num_cem, cem_iter, cem_elite, bounds=(-1, 1)):
         super(BaseNetwork, self).__init__()
 
         self.action_size = action_size
@@ -89,7 +88,7 @@ class BaseNetwork(nn.Module):
         self.cem_elite = cem_elite
         self.bounds = bounds # action bounds
 
-        self.state_net = StateNetwork(in_channels, out_channels)
+        self.state_net = StateNetwork(out_channels)
         self.action_net = ActionNetwork(action_size, out_channels + 1)
         self.qnet = StateActionNetwork(out_channels)
 
@@ -121,7 +120,6 @@ class BaseNetwork(nn.Module):
                                  .clamp(*self.bounds).to(DEVICE)
             hidden_action = self.action_net(action)
 
-            # (s, a) -> q
             q = self.qnet(hidden_state, hidden_action).view(-1)
 
             # Find the top actions and use them to update the sampling dist
@@ -147,29 +145,28 @@ class BaseNetwork(nn.Module):
         but much more efficient due to batch processing.
         """
 
-        # Copy each hidden state representation self.num_uniform times
+        # Repeat the samples along dim 1 so extracting action later is easy
+        # (B, N, R, C) -> repeat (B, U, N, R, C) -> (B * U, N, R, C)
         hidden = hidden_state.unsqueeze(1)\
                              .repeat(1, self.num_uniform, 1, 1, 1)\
                              .view(-1, *hidden_state.size()[1:])
 
         # Sample uniform actions actions between environment bounds
-        actions = torch.zeros((hidden_state.size(0) * self.num_uniform,
-                               self.action_size),
-                              device=DEVICE).uniform_(*self.bounds)
+        actions = torch.zeros((hidden.size(0), self.action_size),
+                              device=DEVICE)\
+                             .uniform_(*self.bounds)
         hidden_action = self.action_net(actions)
 
         q = self.qnet(hidden, hidden_action)
 
-        # Keep all the trials for each state along the second dimension.
-        # To find the top action we need to do some book-keeping
-        top1 = q.view(hidden_state.size(0), self.num_uniform).argmax(1)
+        # Reshape to (Batch, Uniform) to find max action per sample
+        top1 = q.view(-1, self.num_uniform).argmax(1)
 
-        # torch.gather needs an index vector with the same dimensions
-        top1 = top1.view(-1, 1, 1).expand(-1, -1, self.action_size)
+        # The max indices are along an independent dimension, so we need 
+        # to do some book-keeping with the action vector
+        top1 = top1.view(-1, 1, 1).expand(-1, 1, self.action_size)
+        actions = actions.view(-1, self.num_uniform, self.action_size)
 
-        actions = actions.view(hidden_state.size(0),
-                               self.num_uniform,
-                               self.action_size)
         actions = torch.gather(actions, 1, top1).squeeze(1)
 
         return actions
@@ -179,7 +176,7 @@ class BaseNetwork(nn.Module):
 
         During training, the current policy will execute a recorded action and
         observe the output Q value, while target policy will perform a small
-        optimization over random actions, and return the best one for each sample.
+        optimization over random actions, and return the best for each sample.
         """
 
         hidden_state = self.state_net(image, time)
@@ -203,22 +200,12 @@ class BaseNetwork(nn.Module):
 
         with torch.no_grad():
 
-            if isinstance(image, np.ndarray):
-                image = torch.from_numpy(image).to(DEVICE)
-            if isinstance(time, float):
-                time = torch.tensor([time], device=DEVICE)
-
             hidden = self.state_net(image, time)
             return self._uniform_optimizer(hidden)
 
-    def sample_action(self, image, time, explore_prob=0.):
+    def sample_action(self, image, time):
         """Uses the CEM optimizer to sample an action in the environment."""
 
-        # Either explore
-        if np.random.random() < explore_prob:
-            return np.random.uniform(*self.bounds, size=(self.action_size,))
-
-        # Or calculate an action optimized through CEM or uniform
         with torch.no_grad():
 
             if isinstance(image, np.ndarray):
@@ -228,3 +215,4 @@ class BaseNetwork(nn.Module):
 
             hidden = self.state_net(image, time)
             return self._cem_optimizer(hidden).cpu().numpy().flatten()
+

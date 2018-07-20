@@ -35,7 +35,7 @@ def collect_experience(env, memory, print_status_every=25):
     policy = ContinuousDownwardBiasPolicy()
 
     total_step = 0
-    while True and not memory.is_full:
+    while not memory.is_full:
 
         terminal = False
         state = env.reset()
@@ -60,6 +60,7 @@ def collect_experience(env, memory, print_status_every=25):
 
 
 class ReplayBuffer(Dataset):
+
     def __init__(self, max_size, state_size, action_size):
         
         if not isinstance(state_size, tuple):
@@ -99,6 +100,36 @@ class ReplayBuffer(Dataset):
             self.is_full = True
         self.cur_idx = (self.cur_idx + batch_size) % self.max_size
 
+    def load(self, load_dir, max_buffer_size=100000):
+
+        print('Loading state ... ')
+        with open(os.path.join(load_dir, 'state.npy'), 'rb') as f:
+            self.state = np.load(f)[:max_buffer_size].astype(np.uint8)
+
+        print('Loading action ... ')
+        with open(os.path.join(load_dir, 'action.npy'), 'rb') as f:
+            self.action = np.load(f)[:max_buffer_size].astype(np.float32)
+
+        print('Loading reward ... ')
+        with open(os.path.join(load_dir, 'reward.npy'), 'rb') as f:
+            self.reward = np.load(f)[:max_buffer_size].astype(np.float32)
+
+        print('Loading next_state ... ')
+        with open(os.path.join(load_dir, 'next_state.npy'), 'rb') as f:
+            self.next_state = np.load(f)[:max_buffer_size].astype(np.uint8)
+
+        print('Loading terminal ... ')
+        with open(os.path.join(load_dir, 'terminal.npy'), 'rb') as f:
+            self.terminal = np.load(f)[:max_buffer_size].astype(np.float32)
+
+        print('Loading timestep ... ')
+        with open(os.path.join(load_dir, 'timestep.npy'), 'rb') as f:
+            self.timestep = np.load(f)[:max_buffer_size].astype(np.float32)
+
+        self.is_full = True
+        self.cur_idx = self.state.shape[0]
+        self.max_buffer_size = self.state.shape[0]
+
     def sample(self, batch_size, batch_idx=None):
 
         if batch_idx is None:
@@ -132,36 +163,6 @@ class ReplayBuffer(Dataset):
             steps = starts[idx + 1] - starts[idx] 
         
             yield self[starts[idx]:starts[idx+1]]
-
-    def load(self, load_dir, max_buffer_size=10000):
-
-        print('Loading state ... ')
-        with open(os.path.join(load_dir, 'state.npy'), 'rb') as f:
-            self.state = np.load(f)[:max_buffer_size].astype(np.uint8)
-
-        print('Loading action ... ')
-        with open(os.path.join(load_dir, 'action.npy'), 'rb') as f:
-            self.action = np.load(f)[:max_buffer_size].astype(np.float32)
-
-        print('Loading reward ... ')
-        with open(os.path.join(load_dir, 'reward.npy'), 'rb') as f:
-            self.reward = np.load(f)[:max_buffer_size].astype(np.float32)
-
-        print('Loading next_state ... ')
-        with open(os.path.join(load_dir, 'next_state.npy'), 'rb') as f:
-            self.next_state = np.load(f)[:max_buffer_size].astype(np.uint8)
-
-        print('Loading terminal ... ')
-        with open(os.path.join(load_dir, 'terminal.npy'), 'rb') as f:
-            self.terminal = np.load(f)[:max_buffer_size].astype(np.float32)
-
-        print('Loading timestep ... ')
-        with open(os.path.join(load_dir, 'timestep.npy'), 'rb') as f:
-            self.timestep = np.load(f)[:max_buffer_size].astype(np.float32)
-
-        self.is_full = True
-        self.cur_idx = self.state.shape[0]
-        self.max_buffer_size = self.state.shape[0]
 
     def save(self, save_dir='.'):
 

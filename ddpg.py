@@ -11,10 +11,10 @@ from agent import BaseNetwork, StateNetwork
 
 
 class Actor(nn.Module):
-    def __init__(self, in_channels, out_channels, action_size):
+    def __init__(self, out_channels, action_size):
         super(Actor, self).__init__()
 
-        self.state_net = StateNetwork(in_channels, out_channels)
+        self.state_net = StateNetwork(out_channels)
         self.fc1 = nn.Linear(7 * 7 * (out_channels + 1), out_channels)
         self.fc2 = nn.Linear(out_channels, out_channels)
         self.fc3 = nn.Linear(out_channels, action_size)
@@ -37,14 +37,13 @@ class Actor(nn.Module):
 class DDPG:
 
     def __init__(self, num_features, decay, lrate, num_uniform, num_cem,
-                 cem_iter, cem_elite, checkpoint, action_size, in_channels,
-                 device, **kwargs):
+                 cem_iter, cem_elite, checkpoint, action_size, device, **kwargs):
 
         self.device = device
 
-        self.actor = Actor(in_channels, num_features, action_size).to(device)
+        self.actor = Actor(num_features, action_size).to(device)
 
-        self.critic = BaseNetwork(in_channels, num_features, action_size,
+        self.critic = BaseNetwork(num_features, action_size,
                                   num_uniform, num_cem, cem_iter, cem_elite)\
                                  .to(device)
 

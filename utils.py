@@ -223,7 +223,7 @@ class ReplayBuffer(Dataset):
                 action = self.action[start + i].copy()
 
                 self.action[start + i] = path - cur_path
-               
+              
                 cur_path = cur_path + action
 
             assert np.all(cur_path - path == 0)

@@ -9,8 +9,9 @@ from agent import BaseNetwork
 class DQN:
 
     def __init__(self, num_features, decay, lrate, num_uniform, num_cem,
-                 cem_iter, cem_elite, action_size, device, **kwargs):
+                 cem_iter, cem_elite, action_size, bounds, device, **kwargs):
 
+        self.bounds = bounds
         self.device = device
 
         self.model = BaseNetwork(num_features, 
@@ -18,7 +19,8 @@ class DQN:
                                  num_uniform, 
                                  num_cem, 
                                  cem_iter, 
-                                 cem_elite).to(device)
+                                 cem_elite,
+                                 bounds).to(device)
         self.target = copy.deepcopy(self.model)
 
         self.optimizer = optim.Adam(self.model.parameters(),

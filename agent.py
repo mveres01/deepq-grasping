@@ -40,9 +40,12 @@ class ActionNetwork(nn.Module):
     def __init__(self, action_size, num_outputs):
         super(ActionNetwork, self).__init__()
         self.fc1 = nn.Linear(action_size, num_outputs)
+        self.fc2 = nn.Linear(num_outputs, num_outputs)
 
     def forward(self, input):
         out = F.relu(self.fc1(input))
+        out = F.relu(self.fc2(out))
+
         return out
 
 
@@ -127,7 +130,7 @@ class BaseNetwork(nn.Module):
 
             mu = action[topk].mean(dim=0, keepdim=True).detach()
             std = action[topk].std(dim=0, keepdim=True).detach()
-
+            
         return mu
 
     def _uniform_optimizer(self, hidden_state):
@@ -146,7 +149,7 @@ class BaseNetwork(nn.Module):
         """
 
         # Repeat the samples along dim 1 so extracting action later is easy
-        # (B, N, R, C) -> repeat (B, U, N, R, C) -> (B * U, N, R, C)
+        # (B, N, R, C) -> repeat (B, Unif, N, R, C) -> (B * Unif, N, R, C)
         hidden = hidden_state.unsqueeze(1)\
                              .repeat(1, self.num_uniform, 1, 1, 1)\
                              .view(-1, *hidden_state.size()[1:])

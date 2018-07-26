@@ -37,8 +37,10 @@ class Actor(nn.Module):
 class DDPG:
 
     def __init__(self, num_features, decay, lrate, num_uniform, num_cem,
-                 cem_iter, cem_elite, checkpoint, action_size, device, **kwargs):
+                 cem_iter, cem_elite, checkpoint, action_size, bounds,
+                 device, **kwargs):
 
+        self.bounds = bounds
         self.device = device
 
         self.actor = Actor(num_features, action_size).to(device)

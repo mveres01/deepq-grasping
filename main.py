@@ -29,14 +29,41 @@ def test(env, model, memory, explore_prob=0., on_policy=False, **kwargs):
 
         next_state = next_state.transpose(2, 0, 1)[np.newaxis]
 
-        if on_policy:
+        if on_policy and kwargs['methods'] != 'supervised':
             memory.add(state, action, reward, next_state, done, step)
 
         if done:
             return step, reward
 
         state = next_state
+'''
 
+
+def test(env, model, memory, explore_prob=0., on_policy=False, **kwargs):
+    """Performs a full grasping episode in the environment."""
+
+    step = 0.
+    done = False
+    state = env.reset()
+
+    state = state.transpose(2, 0, 1)[np.newaxis].astype(np.float32) / 255.
+   
+    action = model.sample_action(state, 0., explore_prob)
+
+    np.set_printoptions(2)
+    print('action: ', action)
+    
+    action = action / float(kwargs['max_steps'])
+
+    for step in range(kwargs['max_steps']):
+
+        _, reward, done, _ = env.step(action)
+
+        if done: 
+            break
+
+    return step, reward
+'''
 
 def main(**kwargs):
 
@@ -47,17 +74,6 @@ def main(**kwargs):
     checkpoint_dir = os.path.join('checkpoints', kwargs['method'])
     if not os.path.exists(checkpoint_dir):
         os.makedirs(checkpoint_dir)
-
-    if kwargs['method'] == 'dqn':
-        from dqn import DQN as Model
-    elif kwargs['method'] == 'ddqn':
-        from ddqn import DDQN as Model
-    elif kwargs['method'] == 'ddpg':
-        from ddpg import DDPG as Model
-    else:
-        raise ValueError('Model <%s> not understood'%kwargs['method'])
-
-    model = Model(**kwargs)
 
     env = e.KukaDiverseObjectEnv(height=64,
                                  width=64,
@@ -77,14 +93,32 @@ def main(**kwargs):
         collect_experience(env, memory, print_status_every=100)
         memory.save(kwargs['data_dir'])
 
+    if kwargs['method'] == 'dqn':
+        from dqn import DQN as Model
+    elif kwargs['method'] == 'ddqn':
+        from ddqn import DDQN as Model
+    elif kwargs['method'] == 'ddpg':
+        from ddpg import DDPG as Model
+    elif kwargs['method'] == 'supervised':
+        from supervised import Supervised as Model
+        memory.set_supervised() 
+        kwargs['bounds'] = (-12, 3)
+    else:
+        raise ValueError('Model <%s> not understood'%kwargs['method'])
+
+    model = Model(**kwargs)
+
 
     # Do a warm start so we don't spend time acting in the environment early on
+    losses = deque(maxlen=200)
     for it in range(warm_start_iters): 
-        model.train(memory, **kwargs)
+        loss = model.train(memory, **kwargs)
+        losses.append(loss)
 
         if it % kwargs['update_iter'] == 0:
             model.update()
-            print('Warm start iter %d / %d'%(it, warm_start_iters))
+            print('Warm start iter %d / %d, Loss: %2.4f'%\
+                  (it, warm_start_iters, np.mean(losses)))
 
     # Train the model & simultaneously test in the environment
     reward_queue = deque(maxlen=200)
@@ -99,7 +133,9 @@ def main(**kwargs):
             checkpoint = os.path.join(checkpoint_dir, '%d' % episode)
             model.save_checkpoint(checkpoint)
 
-        for _ in range(int(step)): 
+        #for _ in range(int(step)): 
+        for _ in range(1):
+       
             model.train(memory, **kwargs)
 
             total_iters += 1
@@ -126,17 +162,17 @@ if __name__ == '__main__':
     # Hyperparameters
     parser.add_argument('--channels', dest='num_features', default=32, type=int)
     parser.add_argument('--gamma', default=0.90, type=float)
-    parser.add_argument('--decay', default=1e-3, type=float)
+    parser.add_argument('--decay', default=1e-5, type=float)
     parser.add_argument('--lr', dest='lrate', default=1e-4, type=float)
     parser.add_argument('--batch-size', default=200, type=float)
     parser.add_argument('--update', dest='update_iter', default=50, type=int)
     parser.add_argument('--explore-prob', default=0., type=float)
    
     # Optimizer Parameters
-    parser.add_argument('--uniform', dest='num_uniform', default=32, type=int)
+    parser.add_argument('--uniform', dest='num_uniform', default=64, type=int)
     parser.add_argument('--cem', dest='num_cem', default=64, type=int)
-    parser.add_argument('--cem-iter', default=3, type=int)
-    parser.add_argument('--cem-elite', default=8, type=int)
+    parser.add_argument('--cem-iter', default=20, type=int)
+    parser.add_argument('--cem-elite', default=6, type=int)
    
     # Environment Parameters
     parser.add_argument('--max-steps', default=15, type=int)

@@ -82,7 +82,12 @@ class ReplayBuffer(Dataset):
         return self.max_size
 
     def __getitem__(self, idx):
-        return self.sample(1, idx)
+        return (np.float32(self.state[idx]) / 255.,
+                np.float32(self.action[idx]),
+                np.float32(self.reward[idx]),
+                np.float32(self.next_state[idx]) / 255.,
+                np.float32(self.terminal[idx]),
+                np.float32(self.timestep[idx]))
 
     def add(self, state, action, reward, next_state, terminal, timestep):
 
@@ -130,18 +135,23 @@ class ReplayBuffer(Dataset):
         self.cur_idx = self.state.shape[0]
         self.max_buffer_size = self.state.shape[0]
 
-    def sample(self, batch_size, batch_idx=None):
+    def sample(self, batch_size, balanced=False):
 
-        if batch_idx is None:
+        # Very dirty way to balance a minibatch by sampling an equal amount from
+        # both positive and negative examples
+        if balanced:
+            neg = np.where(self.reward == 0)[0]
+            neg = np.random.choice(neg, batch_size // 2, False)
+
+            pos = np.where(self.reward == 1)[0]
+            pos = np.random.choice(pos, batch_size // 2, False)
+        
+            batch_idx = np.hstack((pos, neg))
+        else:
             upper_idx = self.max_size if self.is_full else self.cur_idx
             batch_idx = np.random.randint(0, upper_idx, batch_size)
-
-        return (np.float32(self.state[batch_idx]) / 255.,
-                np.float32(self.action[batch_idx]),
-                np.float32(self.reward[batch_idx]),
-                np.float32(self.next_state[batch_idx]) / 255.,
-                np.float32(self.terminal[batch_idx]),
-                np.float32(self.timestep[batch_idx]))
+       
+        return self[batch_idx]
 
     def sample_episode(self, batch_size, batch_idx=None):
         """Samples grasping episodes rather then single timesteps.

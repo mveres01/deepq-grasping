@@ -9,17 +9,17 @@ DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 class StateNetwork(nn.Module):
     """Used to compute a nonlinear representation for the state."""
 
-    def __init__(self, out_channels, kernel=5):
+    def __init__(self, out_channels, kernel=3):
         super(StateNetwork, self).__init__()
 
         self.net = nn.Sequential(
-            nn.Conv2d(3, out_channels, kernel, padding=1),
+            nn.Conv2d(3, out_channels, kernel, padding=0),
             nn.MaxPool2d(2),
             nn.ReLU(),
-            nn.Conv2d(out_channels, out_channels, kernel, padding=2),
+            nn.Conv2d(out_channels, out_channels, kernel, padding=1),
             nn.MaxPool2d(2),
             nn.ReLU(),
-            nn.Conv2d(out_channels, out_channels, kernel, padding=2),
+            nn.Conv2d(out_channels, out_channels, kernel, padding=1),
             nn.MaxPool2d(2),
             nn.ReLU())
 
@@ -27,10 +27,11 @@ class StateNetwork(nn.Module):
         """Computes a hidden rep for the image & concatenates time."""
 
         out = self.net(image)
-
+    
         time = time.view(-1, 1, 1, 1).expand(-1, 1, out.size(2), out.size(3))
 
         out = torch.cat((out, time), dim=1)
+        
         return out
 
 
@@ -40,11 +41,9 @@ class ActionNetwork(nn.Module):
     def __init__(self, action_size, num_outputs):
         super(ActionNetwork, self).__init__()
         self.fc1 = nn.Linear(action_size, num_outputs)
-        self.fc2 = nn.Linear(num_outputs, num_outputs)
 
     def forward(self, input):
         out = F.relu(self.fc1(input))
-        out = F.relu(self.fc2(out))
 
         return out
 
@@ -114,13 +113,13 @@ class BaseNetwork(nn.Module):
         mu = torch.zeros(1, self.action_size, device=DEVICE)
         std = torch.ones_like(mu)
 
-        size = (self.num_cem, self.action_size)
-        for _ in range(self.cem_iter):
-
+        for i in range(self.cem_iter):
+            
             # Sample actions from the Gaussian parameterized by (mu, std)
-            action = torch.normal(mu.expand(*size),
-                                  std.expand(*size))\
+            action = torch.normal(mu.expand(self.num_cem, -1),
+                                  std.expand(self.num_cem, -1))\
                                  .clamp(*self.bounds).to(DEVICE)
+
             hidden_action = self.action_net(action)
 
             q = self.qnet(hidden_state, hidden_action).view(-1)
@@ -130,7 +129,7 @@ class BaseNetwork(nn.Module):
 
             mu = action[topk].mean(dim=0, keepdim=True).detach()
             std = action[topk].std(dim=0, keepdim=True).detach()
-            
+          
         return mu
 
     def _uniform_optimizer(self, hidden_state):
@@ -158,6 +157,7 @@ class BaseNetwork(nn.Module):
         actions = torch.zeros((hidden.size(0), self.action_size),
                               device=DEVICE)\
                              .uniform_(*self.bounds)
+
         hidden_action = self.action_net(actions)
 
         q = self.qnet(hidden, hidden_action)
@@ -218,4 +218,5 @@ class BaseNetwork(nn.Module):
 
             hidden = self.state_net(image, time)
             return self._cem_optimizer(hidden).cpu().numpy().flatten()
+            #return self._uniform_optimizer(hidden).cpu().numpy().flatten()
 

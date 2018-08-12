@@ -50,10 +50,10 @@ class Supervised:
         with torch.no_grad():
             return self.model.sample_action(state, timestep)
 
-    def train(self, memory, gamma, batch_size, **kwargs):
+    def train(self, memory, batch_size, **kwargs):
 
         # Train the networks
-        s0, act, r, _, _, timestep = memory.sample(batch_size)
+        s0, act, r, _, _, timestep = memory.sample(batch_size, balanced=True)
 
         s0 = torch.from_numpy(s0).to(self.device)
         act = torch.from_numpy(act).to(self.device)
@@ -64,20 +64,13 @@ class Supervised:
         pred = self.model(s0, t0, act).view(-1)
 
         # Use the outcome of the episode as the label
-        loss = torch.nn.BCELoss(size_average=False)(pred, r.view(-1))
-        
+        loss = torch.nn.BCELoss(size_average=False)(pred, r)
+
         self.optimizer.zero_grad()
         loss.backward()
         self.optimizer.step()
-        
-        #return loss.detach() 
 
-        q_pred = pred.detach()
-        q_pred[q_pred >= 0.5] = 1.
-        q_pred[q_pred < 0.5] = 0.
-
-        acc = (q_pred.cpu().data.numpy() == r.cpu().data.numpy()).mean()
-        return acc
+        return loss.item()
 
     def update(self):
         pass

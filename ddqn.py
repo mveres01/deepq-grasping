@@ -8,11 +8,11 @@ from base import BaseNetwork
 
 class DDQN:
 
-    def __init__(self, network_creator, action_size, lrate, decay, device, 
+    def __init__(self, network_creator, action_size, lrate, decay, device,
                  bounds, **kwargs):
 
         self.model = network_creator()
-         self.target = copy.deepcopy(self.model)
+        self.target = copy.deepcopy(self.model)
         self.target.eval()
 
         self.action_size = action_size
@@ -21,15 +21,15 @@ class DDQN:
 
         self.optimizer = optim.Adam(self.model.parameters(),
                                     lrate,
-                                    betas=(0.95, 0.99), 
+                                    betas=(0.95, 0.99),
                                     weight_decay=decay)
 
     def get_weights(self):
-        return self.model.state_dict()
+        return (self.model.state_dict(), self.target.state_dict())
 
     def set_weights(self, weights):
-        self.model.load_state_dict(weights)
-        self.update()
+        self.model.load_state_dict(weights[0])
+        self.target.load_state_dict(weights[1])
 
     def load_checkpoint(self, checkpoint_dir):
         """Loads a model from a directory containing a checkpoint."""
@@ -39,7 +39,8 @@ class DDQN:
 
         weights = torch.load(checkpoint_dir + '/model.pt',
                              map_location=lambda storage, loc: storage)
-        self.set_weights(weights)
+        self.model.load_state_dict(weights)
+        self.update()
 
     def save_checkpoint(self, checkpoint_dir):
         """Saves a model to a directory containing a single checkpoint."""

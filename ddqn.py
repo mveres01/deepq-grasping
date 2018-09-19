@@ -2,27 +2,26 @@ import os
 import copy
 import numpy as np
 import torch
-import torch.optim as optim
 
 from base import BaseNetwork
 
+
 class DDQN:
 
-    def __init__(self, network_creator, action_size, lrate, decay, device,
-                 bounds, **kwargs):
+    def __init__(self, config):
 
-        self.model = network_creator()
+        self.model = BaseNetwork(**config).to(config['device'])
         self.target = copy.deepcopy(self.model)
         self.target.eval()
 
-        self.action_size = action_size
-        self.device = device
-        self.bounds = bounds
+        self.action_size = config['action_size']
+        self.device = config['device']
+        self.bounds = config['bounds']
 
-        self.optimizer = optim.Adam(self.model.parameters(),
-                                    lrate,
-                                    betas=(0.95, 0.99),
-                                    weight_decay=decay)
+        self.optimizer = torch.optim.Adam(self.model.parameters(),
+                                          config['lrate'],
+                                          betas=(0.5, 0.99),
+                                          weight_decay=config['decay'])
 
     def get_weights(self):
         return (self.model.state_dict(), self.target.state_dict())
@@ -49,15 +48,15 @@ class DDQN:
             os.makedirs(checkpoint_dir)
         torch.save(self.model.state_dict(), checkpoint_dir + '/model.pt')
 
+    @torch.no_grad()
     def sample_action(self, state, timestep, explore_prob):
         """Samples an action to perform in the environment."""
 
-        # Either explore
+        # TODO: test
         if np.random.random() < explore_prob:
             return np.random.uniform(*self.bounds, size=(self.action_size,))
 
-        with torch.no_grad():
-            return self.model.sample_action(state, timestep)
+        return self.model.sample_action(state, timestep)
 
     def train(self, memory, gamma, batch_size, **kwargs):
         """Performs a single step of Q-Learning."""
@@ -78,12 +77,12 @@ class DDQN:
         with torch.no_grad():
 
             # DDQN works by finding the maximal action for the current policy
-            ap = self.model.optimal_action(s1, t1)
+            ap = self.model.sample_action(s1, t1, mode='uniform')
 
-            # but uses the corresponding output from the target network
+            # but using the q-value from the target network
             target = r + (1. - done) * gamma * self.target(s1, t1, ap).view(-1)
-
-        loss = torch.mean((pred - target) ** 2)
+    
+        loss = torch.mean((pred - target) ** 2).clamp(-1, 1)
 
         self.optimizer.zero_grad()
         loss.backward()
@@ -93,5 +92,4 @@ class DDQN:
 
     def update(self):
         """Copy the network weights every few epochs."""
-        self.target = copy.deepcopy(self.model)
-        self.target.eval()
+        self.target.load_state_dict(self.model.state_dict())

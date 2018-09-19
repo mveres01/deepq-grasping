@@ -2,34 +2,43 @@ import os
 import copy
 import numpy as np
 import torch
-import torch.optim as optim
-from base import BaseNetwork
 
+from base import BaseNetwork
 
 class DQN:
 
-    def __init__(self, model, action_size, lrate, decay, device, bounds, **kwargs):
+    def __init__(self, config):
 
-        self.model = model 
-        self.action_size = action_size
-        self.device = device
-        self.bounds = bounds
-
-        # Bootstrapped
-        self.target = copy.deepcopy(self.model)        
+        self.model = BaseNetwork(**config).to(config['device'])
+        self.target = copy.deepcopy(self.model)
         self.target.eval()
 
-        self.optimizer = optim.Adam(self.model.parameters(),
-                                    lrate,
-                                    betas=(0.95, 0.99),
-                                    weight_decay=decay)
+        self.action_size = config['action_size']
+        self.device = config['device']
+        self.bounds = config['bounds']
+
+        self.optimizer = torch.optim.Adam(self.model.parameters(),
+                                          config['lrate'],
+                                          weight_decay=config['decay'])
+
+        for name, p in self.target.named_parameters():
+            p.requires_grad_(False)
+
+    def get_weights(self):
+        return (self.model.state_dict(), self.target.state_dict())
+
+    def set_weights(self, weights):
+        self.model.load_state_dict(weights[0])
+        self.target.load_state_dict(weights[1])
 
     def load_checkpoint(self, checkpoint_dir):
         """Loads a model from a directory containing a checkpoint."""
 
         if not os.path.exists(checkpoint_dir):
-            raise Exception('No checkpoint directory <%s>'%checkpoint_dir)
-        self.model.load_state_dict(torch.load(checkpoint_dir + '/model.pt'))
+            raise Exception('No checkpoint directory <%s>' % checkpoint_dir)
+        weights = torch.load(checkpoint_dir + '/model.pt',
+                             map_location=lambda storage, loc: storage)
+        self.model.load_state_dict(weights)
         self.update()
 
     def save_checkpoint(self, checkpoint_dir):
@@ -39,16 +48,14 @@ class DQN:
             os.makedirs(checkpoint_dir)
         torch.save(self.model.state_dict(), checkpoint_dir + '/model.pt')
 
+    @torch.no_grad()
     def sample_action(self, state, timestep, explore_prob):
         """Samples an action to perform in the environment."""
 
-        # Either explore
         if np.random.random() < explore_prob:
             return np.random.uniform(*self.bounds, size=(self.action_size,))
 
-        # Or return the optimal action
-        with torch.no_grad():
-            return self.model.sample_action(state, timestep)
+        return self.model.sample_action(state, timestep).detach()
 
     def train(self, memory, gamma, batch_size, **kwargs):
         """Performs a single step of Q-Learning."""
@@ -72,16 +79,21 @@ class DQN:
         # weights every few training iterations
         with torch.no_grad():
             target = r + (1. - term) * gamma * self.target(s1, t1).view(-1)
+   
+        #loss = 0.5 * torch.pow(pred - target, 2).mean()
 
-        loss = torch.mean((pred - target) ** 2)
+        from torch.nn import functional as F
+        loss = F.smooth_l1_loss(pred, target)
 
         self.optimizer.zero_grad()
         loss.backward()
+        torch.nn.utils.clip_grad_norm_(self.model.parameters(), 10.)
         self.optimizer.step()
-
+        self.model.zero_grad()
+        
         return loss.detach()
 
     def update(self):
         """Copy the network weights every few epochs."""
-        self.target = copy.deepcopy(self.model)
+        self.target.load_state_dict(self.model.state_dict())
         self.target.eval()

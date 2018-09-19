@@ -1,13 +1,11 @@
 import os
 import copy
-import time
 import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-import torch.optim as optim
 
-from base import BaseNetwork, StateNetwork
+from base import StateNetwork
 
 
 class Actor(nn.Module):
@@ -31,16 +29,17 @@ class Actor(nn.Module):
 
         out = F.relu(self.fc1(out))
         out = F.relu(self.fc2(out))
-        out = F.tanh(self.fc3(out)) # Constrain actions to [-1, 1]
+        out = F.tanh(self.fc3(out))
         return out
 
 
 class DDPG:
 
-    def __init__(self, model, num_features, action_size, 
+    def __init__(self, model, num_features, action_size,
                  lrate, decay, device, bounds, **kwargs):
 
         self.device = device
+        self.action_size = action_size
 
         self.actor = Actor(num_features, action_size).to(device)
 
@@ -51,15 +50,15 @@ class DDPG:
         self.atarget.eval()
         self.ctarget.eval()
 
-        self.aoptimizer = optim.Adam(self.actor.parameters(), lrate,
-                                     weight_decay=decay)
-        self.coptimizer = optim.Adam(self.critic.parameters(), lrate,
-                                     weight_decay=decay)
+        self.aoptimizer = torch.optim.Adam(self.actor.parameters(), lrate,
+                                           weight_decay=decay)
+        self.coptimizer = torch.optim.Adam(self.critic.parameters(), lrate,
+                                           weight_decay=decay)
 
     def load_checkpoint(self, checkpoint_dir):
 
         if not os.path.exists(checkpoint_dir):
-            raise Exception('No checkpoint directory <%s>'%checkpoint_dir)
+            raise Exception('No checkpoint directory <%s>' % checkpoint_dir)
         self.actor.load_state_dict(torch.load(checkpoint_dir + '/actor.pt'))
         self.critic.load_state_dict(torch.load(checkpoint_dir + '/critic.pt'))
 
@@ -70,18 +69,21 @@ class DDPG:
         torch.save(self.actor.state_dict(), checkpoint_dir + '/actor.pt')
         torch.save(self.critic.state_dict(), checkpoint_dir + '/critic.pt')
 
+    @torch.no_grad()
     def sample_action(self, state, timestep, explore_prob):
 
-        with torch.no_grad():
-            if np.random.random() < explore_prob:
-                return np.random.uniform(-1, 1)
+        if np.random.random() < explore_prob:
+            return np.random.uniform(-1, 1, self.action_size)
 
-            if isinstance(state, np.ndarray):
-                state = torch.from_numpy(state).to(self.device)
-            if isinstance(timestep, float):
-                timestep = torch.tensor([timestep], device=self.device)
+        if isinstance(state, np.ndarray):
+            state = torch.from_numpy(state).to(self.device)
+        if isinstance(timestep, float):
+            timestep = torch.tensor([timestep], device=self.device)
 
-            return self.actor(state, timestep).cpu().numpy().flatten()
+        self.actor.eval()
+        action = self.actor(state, timestep).cpu().numpy().flatten()
+        self.actor.train()
+        return action
 
     def train(self, memory, gamma, batch_size, **kwargs):
 

@@ -229,3 +229,26 @@ class ReplayBuffer(Dataset):
 
             start, end = end, end + 1
 
+    def set_discounted(self, gamma=0.9):
+        """Converts independent actions and rewards to sequence-based.
+
+        This is used for learning to grasp in the supervised learning case.
+        + Action labels for each trial is given by: a_t = p_T - p_t
+        + Episode labels for timestep in the episode is the episode reward
+        """
+
+        start, end = 0, 1
+
+        while end < self.state.shape[0]:
+
+            while self.timestep[end] > self.timestep[start]:
+                if end >= self.state.shape[0] - 1:
+                    break
+                end = end + 1
+
+            reward = 0.
+            for i in reversed(range(start, end)):
+                reward = reward * gamma + self.reward[i]
+                self.reward[i] = reward
+
+            start, end = end, end + 1

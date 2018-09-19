@@ -60,7 +60,7 @@ class Supervised:
         pred = self.model(s0, t0, act).view(-1)
 
         # Use the outcome of the episode as the label
-        loss = torch.nn.BCELoss(size_average=True)(pred, r)
+        loss = torch.nn.BCEiWithLogitsLoss()(pred, r)
 
         self.optimizer.zero_grad()
         loss.backward()

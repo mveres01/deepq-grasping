@@ -36,8 +36,8 @@ class DQN:
 
         if not os.path.exists(checkpoint_dir):
             raise Exception('No checkpoint directory <%s>' % checkpoint_dir)
-        weights = torch.load(checkpoint_dir + '/model.pt',
-                             map_location=lambda storage, loc: storage)
+        
+        weights = torch.load(checkpoint_dir + '/model.pt', self.device)
         self.model.load_state_dict(weights)
         self.update()
 
@@ -55,7 +55,7 @@ class DQN:
         if np.random.random() < explore_prob:
             return np.random.uniform(*self.bounds, size=(self.action_size,))
 
-        return self.model.sample_action(state, timestep).detach()
+        return self.model.sample_action(state, timestep)
 
     def train(self, memory, gamma, batch_size, **kwargs):
         """Performs a single step of Q-Learning."""
@@ -80,10 +80,7 @@ class DQN:
         with torch.no_grad():
             target = r + (1. - term) * gamma * self.target(s1, t1).view(-1)
    
-        #loss = 0.5 * torch.pow(pred - target, 2).mean()
-
-        from torch.nn import functional as F
-        loss = F.smooth_l1_loss(pred, target)
+        loss = torch.pow(pred - target, 2).mean()
 
         self.optimizer.zero_grad()
         loss.backward()

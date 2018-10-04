@@ -5,7 +5,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from base import StateNetwork
+from base import StateNetwork, BaseNetwork
 
 
 class Actor(nn.Module):
@@ -35,38 +35,66 @@ class Actor(nn.Module):
 
 class DDPG:
 
-    def __init__(self, model, num_features, action_size,
-                 lrate, decay, device, bounds, **kwargs):
+    def __init__(self, config):
 
-        self.device = device
-        self.action_size = action_size
+        self.critic = BaseNetwork(**config).to(config['device'])
+        self.critic_target = copy.deepcopy(self.critic)
 
-        self.actor = Actor(num_features, action_size).to(device)
+        self.model = Actor(config['out_channels'], config['action_size']).to(config['device'])
+        self.model_target = copy.deepcopy(self.model)
 
-        self.critic = model
+        self.critic_target.eval()
+        self.model_target.eval()
 
-        self.atarget = copy.deepcopy(self.actor)
-        self.ctarget = copy.deepcopy(self.critic)
-        self.atarget.eval()
-        self.ctarget.eval()
+        # Needed for sampling actions
+        self.action_size = config['action_size']
+        self.device = config['device']
+        self.bounds = config['bounds']
 
-        self.aoptimizer = torch.optim.Adam(self.actor.parameters(), lrate,
-                                           weight_decay=decay)
-        self.coptimizer = torch.optim.Adam(self.critic.parameters(), lrate,
-                                           weight_decay=decay)
+        self.aopt = torch.optim.Adam(self.model.parameters(), 
+                                     config['lrate'],
+                                     betas=(0.5, 0.99),
+                                     weight_decay=config['decay'])
+
+        self.copt = torch.optim.Adam(self.critic.parameters(), 
+                                     config['lrate'],
+                                     betas=(0.5, 0.99),
+                                     weight_decay=config['decay'])
+
+        self.optimizer = self.aopt
+
+    def get_weights(self):
+        
+        return (self.model.state_dict(), 
+                self.critic.state_dict(),
+                self.model_target.state_dict(), 
+                self.critic_target.state_dict())
+
+    def set_weights(self, weights):
+
+        self.model.load_state_dict(weights[0])
+        self.critic.load_state_dict(weights[1])
+        self.model_target.load_state_dict(weights[2])
+        self.critic_target.load_state_dict(weights[3])
 
     def load_checkpoint(self, checkpoint_dir):
 
         if not os.path.exists(checkpoint_dir):
             raise Exception('No checkpoint directory <%s>' % checkpoint_dir)
-        self.actor.load_state_dict(torch.load(checkpoint_dir + '/actor.pt'))
-        self.critic.load_state_dict(torch.load(checkpoint_dir + '/critic.pt'))
+        
+        weights = torch.load(checkpoint_dir + '/actor.pt', self.device)
+        self.model.load_state_dict(weights)
+
+        weights = torch.load(checkpoint_dir + '/critic.pt', self.device)
+        self.critic.load_state_dict(weights)
+        self.update()
 
     def save_checkpoint(self, checkpoint_dir):
 
         if not os.path.exists(checkpoint_dir):
             os.makedirs(checkpoint_dir)
-        torch.save(self.actor.state_dict(), checkpoint_dir + '/actor.pt')
+
+        torch.save(self.model.state_dict(), checkpoint_dir + '/actor.pt')
         torch.save(self.critic.state_dict(), checkpoint_dir + '/critic.pt')
 
     @torch.no_grad()
@@ -75,17 +103,18 @@ class DDPG:
         if np.random.random() < explore_prob:
             return np.random.uniform(-1, 1, self.action_size)
 
+        self.model.eval()
+
         if isinstance(state, np.ndarray):
             state = torch.from_numpy(state).to(self.device)
         if isinstance(timestep, float):
             timestep = torch.tensor([timestep], device=self.device)
 
-        self.actor.eval()
-        action = self.actor(state, timestep).cpu().numpy().flatten()
-        self.actor.train()
-        return action
+        return self.model(state, timestep).detach()
 
     def train(self, memory, gamma, batch_size, **kwargs):
+
+        self.model.train()
 
         s0, act, r, s1, term, timestep = memory.sample(batch_size)
 
@@ -104,30 +133,30 @@ class DDPG:
         # Training the critic is through Mean Squared Error
         with torch.no_grad():
 
-            at = self.atarget(s1, t1)
-            qt = self.ctarget(s1, t1, at).view(-1)
+            at = self.model_target(s1, t1)
+            qt = self.critic_target(s1, t1, at).view(-1)
             target = r + (1. - term) * gamma * qt
 
-        loss = torch.mean((pred - target) ** 2)
+        loss = torch.mean((pred - target) ** 2).clamp(-1, 1)
 
-        self.coptimizer.zero_grad()
+        self.aopt.zero_grad()
+        self.copt.zero_grad()
         loss.backward()
-        self.coptimizer.step()
-        self.coptimizer.zero_grad()
+        self.copt.step()
+        self.copt.zero_grad()
 
         # Update the actor network by following the policy gradient
-        q_pred = -self.critic(s0, t0, self.actor(s0, t0)).mean()
+        q_pred = -self.critic(s0, t0, self.model(s0, t0)).mean().clamp(-1, 1)
 
-        self.aoptimizer.zero_grad()
+        self.aopt.zero_grad()
         q_pred.backward()
-        self.aoptimizer.step()
-        self.aoptimizer.zero_grad()
+        self.aopt.step()
+        self.aopt.zero_grad()
+        self.copt.zero_grad()
 
         return loss.detach()
 
     def update(self):
 
-        self.atarget = copy.deepcopy(self.actor)
-        self.ctarget = copy.deepcopy(self.critic)
-        self.atarget.eval()
-        self.ctarget.eval()
+        self.model_target.load_state_dict(self.model.state_dict())
+        self.critic_target.load_state_dict(self.critic.state_dict())

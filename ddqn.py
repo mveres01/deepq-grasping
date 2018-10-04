@@ -36,11 +36,10 @@ class DDQN:
         if not os.path.exists(checkpoint_dir):
             os.makedirs(checkpoint_dir)
 
-        weights = torch.load(checkpoint_dir + '/model.pt',
-                             map_location=lambda storage, loc: storage)
+        weights = torch.load(checkpoint_dir + '/model.pt', self.device)
         self.model.load_state_dict(weights)
         self.update()
-
+        
     def save_checkpoint(self, checkpoint_dir):
         """Saves a model to a directory containing a single checkpoint."""
 
@@ -52,7 +51,8 @@ class DDQN:
     def sample_action(self, state, timestep, explore_prob):
         """Samples an action to perform in the environment."""
 
-        # TODO: test
+        self.model.eval()
+
         if np.random.random() < explore_prob:
             return np.random.uniform(*self.bounds, size=(self.action_size,))
 
@@ -60,6 +60,8 @@ class DDQN:
 
     def train(self, memory, gamma, batch_size, **kwargs):
         """Performs a single step of Q-Learning."""
+
+        self.model.train()
 
         # Sample data from the memory buffer & put on GPU
         s0, act, r, s1, done, timestep = memory.sample(batch_size)

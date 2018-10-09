@@ -111,8 +111,8 @@ class BaseNetwork(nn.Module):
         for param in self.parameters():
             if len(param.shape) > 1:
                 #nn.init.xavier_uniform_(param)
-                #nn.init.xavier_normal_(param)
-                nn.init.kaiming_uniform_(param)
+                nn.init.xavier_normal_(param)
+                #nn.init.kaiming_uniform_(param)
 
     @torch.no_grad()
     def _cem_optimizer(self, hidden_state):
@@ -141,11 +141,11 @@ class BaseNetwork(nn.Module):
             hidden_action = self.action_net(action)
 
             q = self.qnet(hidden_state, hidden_action).view(-1)
-            
-            # Use the top actions to calculate a new sampling distribution
-            _, topk = torch.topk(q, self.cem_elite)
 
             s = np.sqrt(max(5 - i / 10., 0))
+            
+            # Find the top actions and use them to update the sampling dist
+            _, topk = torch.topk(q, self.cem_elite)
 
             mu = action[topk].mean(dim=0, keepdim=True).detach()
             std = action[topk].std(dim=0, keepdim=True).detach() + s

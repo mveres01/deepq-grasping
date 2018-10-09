@@ -228,7 +228,6 @@ if __name__ == '__main__':
                                opts=dict(title='Episodic reward', 
                                          caption='Episodic reward'))
 
-
         results = []
         start = time.time()
         for episode in range(args.max_episodes):
@@ -259,8 +258,8 @@ if __name__ == '__main__':
                 for param_group in model.optimizer.param_groups:
                     param_group['lr'] = max(param_group['lr'], 1e-7)
 
-                print('Epoch: %s, Episode: %d, Step: %2.4f, Reward: %1.2f, Took: %2.4fs' %
-                      (ep, episode, np.mean(step_queue), np.mean(reward_queue),
+                print('Epoch: %s, Episode: %d, Step: %2.4f, Reward: %1.2f, Took:
+                      %2.4fs'%(ep, episode, np.mean(step_queue), np.mean(reward_queue),
                        time.time() - start))
 
                 vis.line(X=np.array([episode]),
@@ -289,3 +288,4 @@ if __name__ == '__main__':
 
     print('Average across (%d) episodes: Step: %2.4f, Reward: %1.2f' %
             (args.rollouts * args.remotes, np.mean(steps), np.mean(rewards)))
+

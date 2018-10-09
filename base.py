@@ -13,12 +13,15 @@ class StateNetwork(nn.Module):
         self.net = nn.Sequential(
             nn.Conv2d(3, out_channels, kernel, padding=0),
             nn.MaxPool2d(2),
+            #nn.AvgPool2d(2),
             nn.ReLU(),
             nn.Conv2d(out_channels, out_channels, kernel, padding=1),
             nn.MaxPool2d(2),
+            #nn.AvgPool2d(2),
             nn.ReLU(),
             nn.Conv2d(out_channels, out_channels, kernel, padding=1),
             nn.MaxPool2d(2),
+            #nn.AvgPool2d(2),
             nn.ReLU())
 
     def forward(self, image, time):
@@ -107,10 +110,12 @@ class BaseNetwork(nn.Module):
 
         for param in self.parameters():
             if len(param.shape) > 1:
-                nn.init.xavier_uniform_(param)
+                #nn.init.xavier_uniform_(param)
+                #nn.init.xavier_normal_(param)
+                nn.init.kaiming_uniform_(param)
 
     @torch.no_grad()
-    def _cem_optimizer(self, hidden_state, min_std=0.01):
+    def _cem_optimizer(self, hidden_state):
         """Implements the cross entropy method.
 
         This function is only implemented for a running with a single sample
@@ -121,13 +126,13 @@ class BaseNetwork(nn.Module):
         """
 
         self.eval()
-
+        
         hidden_state = hidden_state.expand(self.num_cem, -1, -1, -1)
     
         mu = torch.zeros(1, self.action_size, device=self.device)
-        std = torch.ones_like(mu) * 0.1
+        std = torch.ones_like(mu) * 0.5
 
-        for _ in range(self.cem_iter):
+        for i in range(self.cem_iter):
 
             # Sample actions from the Gaussian parameterized by (mu, std)
             action = torch.normal(mu.expand(self.num_cem, -1),
@@ -136,12 +141,18 @@ class BaseNetwork(nn.Module):
             hidden_action = self.action_net(action)
 
             q = self.qnet(hidden_state, hidden_action).view(-1)
-
-            # Find the top actions and use them to update the sampling dist
+            
+            # Use the top actions to calculate a new sampling distribution
             _, topk = torch.topk(q, self.cem_elite)
 
+            s = np.sqrt(max(5 - i / 10., 0))
+
             mu = action[topk].mean(dim=0, keepdim=True).detach()
-            std = action[topk].std(dim=0, keepdim=True).detach()
+            std = action[topk].std(dim=0, keepdim=True).detach() + s
+
+            del action
+
+        del std
 
         self.train()
         return mu
@@ -203,16 +214,14 @@ class BaseNetwork(nn.Module):
     def sample_action(self, image, time, mode='cem'):
         """Uses the CEM optimizer to sample an action in the environment."""
 
-        self.eval()
-        if isinstance(image, np.ndarray):
-            image = torch.from_numpy(image).to(self.device)
-        if isinstance(time, float):
-            time = torch.tensor([time], device=self.device)
+        with torch.no_grad():
 
-        hidden = self.state_net(image, time)
-        if mode == 'cem':
-            action = self._cem_optimizer(hidden)
-        action = self._uniform_optimizer(hidden)
+            if isinstance(image, np.ndarray):
+                image = torch.from_numpy(image).to(self.device)
+            if isinstance(time, float):
+                time = torch.tensor([time], device=self.device)
 
-        self.train()
-        return action.detach()
+            hidden = self.state_net(image, time)
+            if mode == 'cem':
+                return self._cem_optimizer(hidden).detach()
+            return self._uniform_optimizer(hidden).detach()

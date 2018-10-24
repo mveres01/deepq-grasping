@@ -12,6 +12,7 @@ import ray
 ray.init()
 time.sleep(1)
 
+
 @ray.remote(num_cpus=1)
 class GymEnvironment(object):
     """Wrapper to run an environment on a remote CPU."""
@@ -24,14 +25,13 @@ class GymEnvironment(object):
         np.random.seed(seed)
         torch.manual_seed(seed)
 
-        os.environ['MKL_NUM_THREADS'] = '1'
-
         self.model = model_creator()
-        self.env = env_creator()
-        state = self.reset()
 
         for p in self.model.model.parameters():
              p.requires_grad_(False)
+
+        self.env = env_creator()
+        self.reset()
 
     def step(self, action):
         return self.env.step(action)
@@ -98,11 +98,8 @@ def make_model(args, device):
     """Makes a new model given a config file."""
 
     # Defines parameters for network generator
-    # NOTE: Should tidy this up a bit
-    config = vars(args)
-    config['action_size'] = 4
-    config['bounds'] = (-1, 1)
-    config['device'] = device
+    config = {'action_size':4, 'bounds':(-1, 1), 'device':device}
+    config.update(vars(args))
 
     if args.model == 'dqn':
         from dqn import DQN as Model
@@ -135,7 +132,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Off Policy Deep Q-Learning')
 
     # Model parameters
-    parser.add_argument('--model', default='dqn')
+    parser.add_argument('--model', default='ddqn')
     parser.add_argument('--data-dir', default='data100K')
     parser.add_argument('--buffer-size', default=100000, type=int)
     parser.add_argument('--checkpoint', default=None)
@@ -147,7 +144,7 @@ if __name__ == '__main__':
     parser.add_argument('--seed', default=1234, type=int)
     parser.add_argument('--channels', dest='out_channels', default=32, type=int)
     parser.add_argument('--gamma', default=0.92, type=float)
-    parser.add_argument('--decay', default=1e-6, type=float)
+    parser.add_argument('--decay', default=1e-5, type=float)
     parser.add_argument('--lr', dest='lrate', default=1e-3, type=float)
     parser.add_argument('--batch-size', default=64, type=int)
     parser.add_argument('--update', dest='update_iter', default=50, type=int)
@@ -208,12 +205,14 @@ if __name__ == '__main__':
         
         step_queue = deque(maxlen=max(200, args.rollouts * args.remotes))
         reward_queue = deque(maxlen=step_queue.maxlen)
+        loss_queue = deque(maxlen=step_queue.maxlen)
 
         results = []
         start = time.time()
         for episode in range(args.max_episodes):
 
             loss = model.train(memory, **vars(args))
+            loss_queue.append(loss)
 
             if episode % args.update_iter == 0:
                 model.update()
@@ -239,13 +238,14 @@ if __name__ == '__main__':
                 for param_group in model.optimizer.param_groups:
                     param_group['lr'] = max(param_group['lr'], 1e-7)
 
-                print('Epoch: %s, Episode: %d, Step: %2.4f, Reward: %1.2f, Took: %2.4fs' %
-                      (ep, episode, np.mean(step_queue), np.mean(reward_queue),
-                       time.time() - start))
+                print('Epoch: %s, Step: %2.4f, Reward: %1.2f, Loss: %2.4f, Took:%2.4fs'%\
+                     (ep, np.mean(step_queue), np.mean(reward_queue),
+                      np.mean(loss_queue), time.time() - start))
 
                 start = time.time()
 
                 torch.cuda.empty_cache()
+
 
     print('Testing --------')
     results = ray.get(test(model.get_weights(), envs, args.rollouts))

@@ -18,7 +18,6 @@ class Supervised:
 
         self.optimizer = torch.optim.Adam(self.model.parameters(),
                                           config['lrate'],
-                                          betas=(0.1, 0.6),
                                           weight_decay=config['decay'])
 
     def get_weights(self):
@@ -53,32 +52,31 @@ class Supervised:
     def train(self, memory, batch_size, **kwargs):
 
         # Train the networks
-        #0, act, r, _, _, timestep = memory.sample(batch_size, balanced=True)
         s0, act, r, _, _, timestep = memory.sample(batch_size, balanced=True)
-
-        act = act / 15.
+        #s0, act, r, _, _, timestep = memory.sample(batch_size, balanced=False)
 
         s0 = torch.from_numpy(s0).to(self.device)
         act = torch.from_numpy(act).to(self.device)
         r = torch.from_numpy(r).to(self.device)
         t0 = torch.from_numpy(timestep).to(self.device)
 
-        # Predict a binary outcom
         pred = self.model(s0, t0, act).view(-1)
+        pred = pred.clamp(1e-10, 1-1e-10)
 
         # Use the outcome of the episode as the label
-        loss = torch.nn.BCEWithLogitsLoss()(pred, r)
+        loss = torch.nn.BCELoss()(pred, r)
 
         self.optimizer.zero_grad()
         loss.backward()
         torch.nn.utils.clip_grad_norm_(self.model.parameters(), 10.)
         self.optimizer.step()
 
-        #return loss.item()
-        acc = pred.round_().eq(r.view(-1)).float().mean()
+        return loss.item()
+        
+        acc = pred.round_().eq(r.view(-1)).float().sum()
         #print('Loss: %2.4f, Pred: %2.4f, Acc: %2.4f, Ratio: %2.4f'%(loss.item(), pred.mean().item(), acc.item(), r.mean().item()))
 
-        return acc.item()
+        #return acc.item()
 
     def update(self):
         pass

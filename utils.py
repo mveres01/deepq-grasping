@@ -137,7 +137,7 @@ class ReplayBuffer(Dataset):
 
     def sample(self, batch_size, balanced=False):
 
-        # Very dirty way to balance a minibatch by sampling an equal amount from
+        # Dirty way to balance a minibatch by sampling an equal amount from
         # both positive and negative examples
         if balanced:
             neg = np.where(self.reward == 0)[0]
@@ -223,6 +223,9 @@ class ReplayBuffer(Dataset):
             # just sum the actions for the episode.
             path = np.cumsum(self.action[start:end], axis=0)
             self.action[start:end] = path[::-1]
+
+            # Normalize each action by number of steps remaining in episode
+            self.action[start:end] /= np.arange(1, end-start+1)[::-1][:, np.newaxis]
 
             # Set the reward for each timestep as the episode reward
             self.reward[start:end] = self.reward[end - 1]

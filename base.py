@@ -13,16 +13,14 @@ class StateNetwork(nn.Module):
         self.net = nn.Sequential(
             nn.Conv2d(3, out_channels, kernel, padding=0),
             nn.MaxPool2d(2),
-            #nn.AvgPool2d(2),
             nn.ReLU(),
             nn.Conv2d(out_channels, out_channels, kernel, padding=1),
             nn.MaxPool2d(2),
-            #nn.AvgPool2d(2),
             nn.ReLU(),
             nn.Conv2d(out_channels, out_channels, kernel, padding=1),
             nn.MaxPool2d(2),
-            #nn.AvgPool2d(2),
-            nn.ReLU())
+            )
+            #nn.ReLU())
 
     def forward(self, image, time):
         """Computes a hidden rep for the image & concatenates time."""
@@ -42,7 +40,8 @@ class ActionNetwork(nn.Module):
         self.fc1 = nn.Linear(action_size, num_outputs)
 
     def forward(self, input):
-        out = F.relu(self.fc1(input))
+        #out = F.relu(self.fc1(input))
+        out = self.fc1(input)
 
         return out
 
@@ -142,17 +141,13 @@ class BaseNetwork(nn.Module):
 
             q = self.qnet(hidden_state, hidden_action).view(-1)
 
-            s = np.sqrt(max(5 - i / 10., 0))
-            
             # Find the top actions and use them to update the sampling dist
             _, topk = torch.topk(q, self.cem_elite)
 
+            s = np.sqrt(max(5 - i / 10., 0))
+
             mu = action[topk].mean(dim=0, keepdim=True).detach()
             std = action[topk].std(dim=0, keepdim=True).detach() + s
-
-            del action
-
-        del std
 
         self.train()
         return mu

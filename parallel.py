@@ -221,7 +221,7 @@ def main(args):
                 results = test(model.get_weights(), 
                                envs, 
                                args.rollouts,
-                               argx.explore)
+                               args.explore)
 
                 scheduler.step()
                 for param_group in model.optimizer.param_groups:

@@ -20,7 +20,6 @@ class StateNetwork(nn.Module):
             nn.Conv2d(out_channels, out_channels, kernel, padding=1),
             nn.MaxPool2d(2),
             )
-            #nn.ReLU())
 
     def forward(self, image, time):
         """Computes a hidden rep for the image & concatenates time."""
@@ -40,7 +39,6 @@ class ActionNetwork(nn.Module):
         self.fc1 = nn.Linear(action_size, num_outputs)
 
     def forward(self, input):
-        #out = F.relu(self.fc1(input))
         out = self.fc1(input)
 
         return out
@@ -69,6 +67,7 @@ class StateActionNetwork(nn.Module):
 
         # (h_s, h_a) -> q
         out = (hidden_state + out).view(out.size(0), -1)
+        out = F.relu(out)
         out = F.relu(self.fc1(out))
         out = F.relu(self.fc2(out))
         out = F.sigmoid(self.fc3(out))

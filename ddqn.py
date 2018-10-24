@@ -3,20 +3,20 @@ import copy
 import numpy as np
 import torch
 
-from base import BaseNetwork
+from base.network import BaseNetwork
 
 
 class DDQN:
 
     def __init__(self, config):
 
-        self.model = BaseNetwork(**config).to(config['device'])
-        self.target = copy.deepcopy(self.model)
-        self.target.eval()
-
         self.action_size = config['action_size']
         self.device = config['device']
         self.bounds = config['bounds']
+
+        self.model = BaseNetwork(**config).to(config['device'])
+        self.target = copy.deepcopy(self.model)
+        self.target.eval()
 
         self.optimizer = torch.optim.Adam(self.model.parameters(),
                                           config['lrate'],
@@ -39,7 +39,7 @@ class DDQN:
         weights = torch.load(checkpoint_dir + '/model.pt', self.device)
         self.model.load_state_dict(weights)
         self.update()
-        
+
     def save_checkpoint(self, checkpoint_dir):
         """Saves a model to a directory containing a single checkpoint."""
 
@@ -83,7 +83,7 @@ class DDQN:
 
             # but using the q-value from the target network
             target = r + (1. - done) * gamma * self.target(s1, t1, ap).view(-1)
-    
+
         loss = torch.mean((pred - target) ** 2).clamp(-1, 1)
 
         self.optimizer.zero_grad()

@@ -5,7 +5,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from base import StateNetwork, BaseNetwork
+from base.network import StateNetwork, BaseNetwork
 
 
 class Actor(nn.Module):
@@ -37,26 +37,27 @@ class DDPG:
 
     def __init__(self, config):
 
-        self.critic = BaseNetwork(**config).to(config['device'])
-        self.critic_target = copy.deepcopy(self.critic)
-
-        self.model = Actor(config['out_channels'], config['action_size']).to(config['device'])
-        self.model_target = copy.deepcopy(self.model)
-
-        self.critic_target.eval()
-        self.model_target.eval()
-
         # Needed for sampling actions
         self.action_size = config['action_size']
         self.device = config['device']
         self.bounds = config['bounds']
 
-        self.aopt = torch.optim.Adam(self.model.parameters(), 
+        self.critic = BaseNetwork(**config).to(config['device'])
+        self.critic_target = copy.deepcopy(self.critic)
+
+        self.model = Actor(config['out_channels'], 
+                           config['action_size']).to(config['device'])
+        self.model_target = copy.deepcopy(self.model)
+
+        self.critic_target.eval()
+        self.model_target.eval()
+
+        self.aopt = torch.optim.Adam(self.model.parameters(),
                                      config['lrate'],
                                      betas=(0.5, 0.99),
                                      weight_decay=config['decay'])
 
-        self.copt = torch.optim.Adam(self.critic.parameters(), 
+        self.copt = torch.optim.Adam(self.critic.parameters(),
                                      config['lrate'],
                                      betas=(0.5, 0.99),
                                      weight_decay=config['decay'])
@@ -64,10 +65,10 @@ class DDPG:
         self.optimizer = self.aopt
 
     def get_weights(self):
-        
-        return (self.model.state_dict(), 
+
+        return (self.model.state_dict(),
                 self.critic.state_dict(),
-                self.model_target.state_dict(), 
+                self.model_target.state_dict(),
                 self.critic_target.state_dict())
 
     def set_weights(self, weights):
@@ -81,7 +82,7 @@ class DDPG:
 
         if not os.path.exists(checkpoint_dir):
             raise Exception('No checkpoint directory <%s>' % checkpoint_dir)
-        
+
         weights = torch.load(checkpoint_dir + '/actor.pt', self.device)
         self.model.load_state_dict(weights)
 
@@ -154,7 +155,7 @@ class DDPG:
         self.aopt.zero_grad()
         self.copt.zero_grad()
 
-        return loss.detach()
+        return loss.item()
 
     def update(self):
 

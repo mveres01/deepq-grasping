@@ -3,26 +3,23 @@ import copy
 import numpy as np
 import torch
 
-from base import BaseNetwork
+from base.network import BaseNetwork
 
 class DQN:
 
     def __init__(self, config):
 
-        self.model = BaseNetwork(**config).to(config['device'])
-        self.target = copy.deepcopy(self.model)
-        self.target.eval()
-
         self.action_size = config['action_size']
         self.device = config['device']
         self.bounds = config['bounds']
 
+        self.model = BaseNetwork(**config).to(config['device'])
+        self.target = copy.deepcopy(self.model)
+        self.target.eval()
+
         self.optimizer = torch.optim.Adam(self.model.parameters(),
                                           config['lrate'],
                                           weight_decay=config['decay'])
-
-        for name, p in self.target.named_parameters():
-            p.requires_grad_(False)
 
     def get_weights(self):
         return (self.model.state_dict(), self.target.state_dict())
@@ -36,7 +33,7 @@ class DQN:
 
         if not os.path.exists(checkpoint_dir):
             raise Exception('No checkpoint directory <%s>' % checkpoint_dir)
-        
+
         weights = torch.load(checkpoint_dir + '/model.pt', self.device)
         self.model.load_state_dict(weights)
         self.update()
@@ -79,7 +76,7 @@ class DQN:
         # weights every few training iterations
         with torch.no_grad():
             target = r + (1. - term) * gamma * self.target(s1, t1).view(-1)
-   
+
         loss = torch.pow(pred - target, 2).mean()
 
         self.optimizer.zero_grad()
@@ -87,10 +84,11 @@ class DQN:
         torch.nn.utils.clip_grad_norm_(self.model.parameters(), 10.)
         self.optimizer.step()
         self.model.zero_grad()
-        
+
         return loss.detach()
 
     def update(self):
         """Copy the network weights every few epochs."""
+
         self.target.load_state_dict(self.model.state_dict())
         self.target.eval()

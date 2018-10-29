@@ -18,8 +18,7 @@ class StateNetwork(nn.Module):
             nn.MaxPool2d(2),
             nn.ReLU(),
             nn.Conv2d(out_channels, out_channels, kernel, padding=1),
-            nn.MaxPool2d(2),
-            )
+            nn.MaxPool2d(2))
 
     def forward(self, image, time):
         """Computes a hidden rep for the image & concatenates time."""
@@ -27,7 +26,6 @@ class StateNetwork(nn.Module):
         out = self.net(image)
         time = time.view(-1, 1, 1, 1).expand(-1, 1, out.size(2), out.size(3))
         out = torch.cat((out, time), dim=1)
-
         return out
 
 
@@ -40,7 +38,6 @@ class ActionNetwork(nn.Module):
 
     def forward(self, input):
         out = self.fc1(input)
-
         return out
 
 
@@ -70,7 +67,6 @@ class StateActionNetwork(nn.Module):
         out = F.relu(self.fc1(out))
         out = F.relu(self.fc2(out))
         out = F.sigmoid(self.fc3(out))
-
         return out
 
 
@@ -107,48 +103,59 @@ class BaseNetwork(nn.Module):
 
         for param in self.parameters():
             if len(param.shape) > 1:
-                #nn.init.xavier_uniform_(param)
                 nn.init.xavier_normal_(param)
-                #nn.init.kaiming_uniform_(param)
 
     @torch.no_grad()
     def _cem_optimizer(self, hidden_state):
         """Implements the cross entropy method.
 
-        This function is only implemented for a running with a single sample
-        at a time. Extending to multiple samples is straightforward, but not
-        needed in this case as CEM method is only run in evaluation mode.
+        Note that the CEM method is (generally) only run in evaluation mode, 
+        where a single sample is optimized at a time. However, this function 
+        supports batch sizes > 0
 
         See: https://en.wikipedia.org/wiki/Cross-entropy_method
         """
 
         self.eval()
-        
-        hidden_state = hidden_state.expand(self.num_cem, -1, -1, -1)
-    
-        mu = torch.zeros(1, self.action_size, device=self.device)
+
+        batch = hidden_state.size(0)
+
+        # Repeat the samples along dim 1 so extracting action later is easy
+        # (B, N, R, C) -> repeat (B, Cem, N, R, C) -> (B * Cem, N, R, C)
+        hidden_state = hidden_state.unsqueeze(1)\
+                                   .repeat(1, self.num_cem, 1, 1, 1)\
+                                   .view(-1, *hidden_state.size()[1:])
+
+        mu = torch.zeros(batch, 1, self.action_size, device=self.device)
         std = torch.ones_like(mu) * 0.5
 
         for i in range(self.cem_iter):
 
             # Sample actions from the Gaussian parameterized by (mu, std)
-            action = torch.normal(mu.expand(self.num_cem, -1),
-                                  std.expand(self.num_cem, -1))\
+            action = torch.normal(mu.expand(batch, self.num_cem, -1),
+                                  std.expand(batch, self.num_cem, -1))\
                                  .clamp(*self.bounds).to(self.device)
+            action = action.view(batch * self.num_cem, -1)
+
             hidden_action = self.action_net(action)
 
-            q = self.qnet(hidden_state, hidden_action).view(-1)
+            q = self.qnet(hidden_state, hidden_action).view(batch, self.num_cem)
 
             # Find the top actions and use them to update the sampling dist
-            _, topk = torch.topk(q, self.cem_elite)
+            _, topk = torch.topk(q, self.cem_elite, dim=1)
 
-            s = np.sqrt(max(5 - i / 10., 0))
+            # Book-keeping to extract topk actions for each batch sample
+            topk = topk.unsqueeze(2).expand(-1, -1, self.action_size)
+            action = action.view(batch, self.num_cem, self.action_size)
+            action = torch.gather(action, 1, topk)
 
-            mu = action[topk].mean(dim=0, keepdim=True).detach()
-            std = action[topk].std(dim=0, keepdim=True).detach() + s
+            s = np.sqrt(max(1. - i / self.cem_iter, 0))
+
+            mu = action.mean(dim=1, keepdim=True).detach()
+            std = action.std(dim=1, keepdim=True).detach() + s
 
         self.train()
-        return mu
+        return mu.squeeze(1)
 
     @torch.no_grad()
     def _uniform_optimizer(self, hidden_state):

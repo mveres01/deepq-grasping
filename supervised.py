@@ -47,6 +47,22 @@ class Memory(BaseMemory):
             start, end = end, end + 1
 
 
+        '''
+        import matplotlib
+        matplotlib.use('Agg')
+        import matplotlib.pyplot as plt
+        import seaborn as sns
+
+        fig, ax = plt.subplots(nrows=2, ncols=2, figsize=(8, 6))
+
+        sns.distplot(self.action[:, 0], ax=ax[0, 0])
+        sns.distplot(self.action[:, 1], ax=ax[0, 1])
+        sns.distplot(self.action[:, 2], ax=ax[1, 0])
+        sns.distplot(self.action[:, 3], ax=ax[1, 1])
+        plt.savefig('hist.png')
+        plt.close('all')
+        '''
+
 class Supervised:
 
     def __init__(self, config):
@@ -99,15 +115,16 @@ class Supervised:
         # The dataset contains more failures then successes, so we'll 
         # balance the minibatch loss by weighting it by class frequency
         weight = np.sum(r) / (batch_size - np.sum(r))
-        weight = torch.from_numpy(np.where(r == 0, weight, 1).astype(np.float32))
-        weight = weight.to(self.device).view(-1)
+        weight = np.where(r == 0, weight, 1).astype(np.float32)
+        weight = torch.from_numpy(weight).to(self.device).view(-1)
 
         s0 = torch.from_numpy(s0).to(self.device)
         act = torch.from_numpy(act).to(self.device)
         r = torch.from_numpy(r).to(self.device)
         t0 = torch.from_numpy(timestep).to(self.device)
 
-        pred = self.model(s0, t0, act).clamp(1e-6, 1-1e-6)
+        pred = self.model(s0, t0, act).clamp(1e-6, 1-1e-6).view(-1)
+
 
         # Uses the outcome of the episode as individual step label
         loss = torch.nn.BCELoss(weight=weight)(pred, r)

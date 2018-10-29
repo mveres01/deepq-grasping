@@ -29,17 +29,16 @@ class GymEnvironment(object):
         np.random.seed(seed)
         torch.manual_seed(seed)
 
-        os.environ['MKL_NUM_THREADS'] = '1'
-
         self.model = model_creator()
-        self.env = env_creator()
-        state = self.reset()
-
-        self.vis = Visdom(port=8097)
-        self.win_id = self.vis.image(state.transpose(2, 0, 1))
 
         for p in self.model.model.parameters():
              p.requires_grad_(False)
+
+        self.env = env_creator()
+
+        state = self.reset()
+        self.vis = Visdom(port=8097)
+        self.win_id = self.vis.image(state.transpose(2, 0, 1))
 
     def step(self, action):
         return self.env.step(action)
@@ -108,11 +107,8 @@ def make_model(args, device):
     """Makes a new model given a config file."""
 
     # Defines parameters for network generator
-    # NOTE: Should tidy this up a bit
-    config = vars(args)
-    config['action_size'] = 4
-    config['bounds'] = (-1, 1)
-    config['device'] = device
+    config = {'action_size':4, 'bounds':(-1, 1), 'device':device}
+    config.update(vars(args))
 
     if args.model == 'dqn':
         from dqn import DQN as Model
@@ -145,9 +141,9 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Off Policy Deep Q-Learning')
 
     # Model parameters
-    parser.add_argument('--model', default='dqn')
-    parser.add_argument('--data-dir', default='data100K')
-    parser.add_argument('--buffer-size', default=100000, type=int)
+    parser.add_argument('--model', default='ddqn')
+    parser.add_argument('--data-dir', default='data1M')
+    parser.add_argument('--buffer-size', default=300000, type=int)
     parser.add_argument('--checkpoint', default=None)
     parser.add_argument('--epochs', dest='max_episodes', default=200000, type=int)
     parser.add_argument('--on-policy', action='store_true', default=False)
@@ -157,7 +153,7 @@ if __name__ == '__main__':
     parser.add_argument('--seed', default=1234, type=int)
     parser.add_argument('--channels', dest='out_channels', default=32, type=int)
     parser.add_argument('--gamma', default=0.92, type=float)
-    parser.add_argument('--decay', default=1e-6, type=float)
+    parser.add_argument('--decay', default=1e-5, type=float)
     parser.add_argument('--lr', dest='lrate', default=1e-3, type=float)
     parser.add_argument('--batch-size', default=64, type=int)
     parser.add_argument('--update', dest='update_iter', default=50, type=int)
@@ -258,8 +254,8 @@ if __name__ == '__main__':
                 for param_group in model.optimizer.param_groups:
                     param_group['lr'] = max(param_group['lr'], 1e-7)
 
-                print('Epoch: %s, Episode: %d, Step: %2.4f, Reward: %1.2f, Took:
-                      %2.4fs'%(ep, episode, np.mean(step_queue), np.mean(reward_queue),
+                print('Epoch: %s, Episode: %d, Step: %2.4f, Reward: %1.2f, Took:%2.4fs'%\
+                     (ep, episode, np.mean(step_queue), np.mean(reward_queue),
                        time.time() - start))
 
                 vis.line(X=np.array([episode]),

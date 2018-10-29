@@ -11,9 +11,9 @@ from base.memory import BaseMemory
 class Memory(BaseMemory):
 
     def __init__(self, *args, **kwargs):
-        super(Memory, self).__init__(self, *args, **kwargs)
+        super(Memory, self).__init__(*args, **kwargs)
 
-   def load(self, data_dir, buffer_size=100000, **kwargs):
+    def load(self, data_dir, buffer_size=100000, **kwargs):
         """Converts independent actions and rewards to sequence-based.
 
         This is used for learning to grasp in the supervised learning case.
@@ -23,7 +23,6 @@ class Memory(BaseMemory):
         super(Memory, self).load(data_dir, buffer_size)
 
         start, end = 0, 1
-
         while end < self.state.shape[0]:
 
             while self.timestep[end] > self.timestep[start]:
@@ -32,15 +31,16 @@ class Memory(BaseMemory):
                 end = end + 1
 
             # Convert the label for each element to be the straight-line
-            # path from the action at the current time step & final action.
-            # As each action is represented by [dx, dy, dz, d_theta], we can
-            # just sum the actions for the episode.
-            path = np.cumsum(self.action[start:end], axis=0)
+            # path from the current to final step. Note how we take the
+            # cumulative sum from the end of the list and work backwords;
+            # it doesn't matter how we got to that point from the forwards
+            # direction, we only care about the actions we take from the current
+            # state to reach the goal.
+            path = np.cumsum(self.action[start:end][::-1], axis=0)
+            path /= np.arange(1, end-start+1)[:, np.newaxis]  # normalize
+
             self.action[start:end] = path[::-1]
-
-            # Normalize each action by number of steps remaining in episode
-            self.action[start:end] /= np.arange(1, end-start+1)[::-1][:, np.newaxis]
-
+   
             # Set the reward for each timestep as the episode reward
             self.reward[start:end] = self.reward[end - 1]
 
@@ -94,17 +94,23 @@ class Supervised:
     def train(self, memory, batch_size, **kwargs):
         """Performs a single training step."""
 
-        s0, act, r, _, _, timestep = memory.sample(batch_size, balanced=True)
+        s0, act, r, _, _, timestep = memory.sample(batch_size)
+
+        # The dataset contains more failures then successes, so we'll 
+        # balance the minibatch loss by weighting it by class frequency
+        weight = np.sum(r) / (batch_size - np.sum(r))
+        weight = torch.from_numpy(np.where(r == 0, weight, 1).astype(np.float32))
+        weight = weight.to(self.device).view(-1)
 
         s0 = torch.from_numpy(s0).to(self.device)
         act = torch.from_numpy(act).to(self.device)
         r = torch.from_numpy(r).to(self.device)
         t0 = torch.from_numpy(timestep).to(self.device)
 
-        pred = self.model(s0, t0, act).clamp(1e-10, 1-1e-10)
+        pred = self.model(s0, t0, act).clamp(1e-6, 1-1e-6)
 
         # Uses the outcome of the episode as individual step label
-        loss = torch.nn.BCELoss()(pred, r)
+        loss = torch.nn.BCELoss(weight=weight)(pred, r)
 
         self.optimizer.zero_grad()
         loss.backward()

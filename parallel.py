@@ -55,15 +55,14 @@ class GymEnvironment:
                 state = state.transpose(2, 0, 1)[np.newaxis]
                 state = state.astype(np.float32) / 255.
 
-                # Sample and perform and action in the sim
                 action = self.model.sample_action(state,
                                                   float(step),
                                                   explore_prob)
-                
+
                 if not isinstance(action, np.ndarray):
                     action = action.cpu().numpy().flatten()
 
-                state, reward, done, _ = self.env.step(action)
+                state, reward, done, _ = self.step(action)
 
                 step = step + 1
 
@@ -122,7 +121,13 @@ def make_model(args, device):
 
 
 def make_memory(model, buffer_size, state_size, action_size):
-    """Initializes a memory structure."""
+    """Initializes a memory structure.
+
+    Some models require slight modifications to the replay buffer,
+    such as sampling a full episode, setting discounted rewards, or
+    altering the action. in these cases, the base.memory module gets
+    overridden in the respective files.
+    """
 
     if model == 'supervised':
         from supervised import Memory
@@ -132,16 +137,6 @@ def make_memory(model, buffer_size, state_size, action_size):
         Memory = BaseMemory
 
     return Memory(buffer_size, state_size, action_size)
-
-
-def test(weights, envs, num_episodes, explore_prob):
-    """Used for evaluating network performance.
-
-    This can be used in parallel with the training loop to collect data on
-    remote processes while the main process trains the network.
-    """
-
-    return [env.rollout.remote(weights, num_episodes, explore_prob) for env in envs]
 
 
 def main(args):
@@ -168,6 +163,11 @@ def main(args):
 
     if args.checkpoint is not None:
         model.load_checkpoint(args.checkpoint)
+
+    model_parameters = filter(lambda p: p.requires_grad, model.model.parameters())
+    params = sum([np.prod(p.size()) for p in model_parameters])
+    print('Number of parameters: ', params)
+
 
     # Train
     if not args.is_test:
@@ -218,14 +218,16 @@ def main(args):
                     reward_queue.extend(device[1])
 
                 # Send the weights out for current epoch
-                results = test(model.get_weights(), 
-                               envs, 
-                               args.rollouts,
-                               args.explore)
+                results = []
+                for env in envs:
+                    e = env.rollout.remote(model.get_weights(),
+                                           args.rollouts,
+                                           args.explore)
+                    results.append(e)
 
                 scheduler.step()
                 for param_group in model.optimizer.param_groups:
-                    param_group['lr'] = max(param_group['lr'], 1e-7)
+                    param_group['lr'] = max(param_group['lr'], 1e-6)
 
                 print('Epoch: %s, Step: %2.4f, Reward: %1.2f, Loss: %2.4f, Took:%2.4fs'%\
                      (ep, np.mean(step_queue), np.mean(reward_queue),
@@ -234,13 +236,15 @@ def main(args):
                 start = time.time()
 
     print('Testing --------')
-    results = ray.get(test(model.get_weights(), 
-                           envs, 
-                           args.rollouts,
-                           args.explore))
 
-    steps, rewards = [], []
-    for out in results:
+    results, steps, rewards = [], [], []
+    for env in envs:
+        e = env.rollout.remote(model.get_weights(),
+                               args.rollouts,
+                               args.explore)
+        results.append(e)
+
+    for out in ray.get(results):
         steps.extend(out[0])
         rewards.extend(out[1])
 
@@ -258,15 +262,15 @@ if __name__ == '__main__':
     parser.add_argument('--buffer-size', default=100000, type=int)
     parser.add_argument('--checkpoint', default=None)
     parser.add_argument('--epochs', dest='max_episodes', default=200000, type=int)
-    parser.add_argument('--explore', default=0.1, type=float)
+    parser.add_argument('--explore', default=0.0, type=float)
 
     # Hyperparameters
     parser.add_argument('--seed', default=1234, type=int)
     parser.add_argument('--channels', dest='out_channels', default=32, type=int)
-    parser.add_argument('--gamma', default=0.92, type=float)
+    parser.add_argument('--gamma', default=0.90, type=float)
     parser.add_argument('--decay', default=1e-5, type=float)
     parser.add_argument('--lr', dest='lrate', default=1e-3, type=float)
-    parser.add_argument('--batch-size', default=64, type=int)
+    parser.add_argument('--batch-size', default=128, type=int)
     parser.add_argument('--update', dest='update_iter', default=50, type=int)
     parser.add_argument('--uniform', dest='num_uniform', default=16, type=int)
     parser.add_argument('--cem', dest='num_cem', default=64, type=int)

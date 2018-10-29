@@ -66,8 +66,7 @@ class StateActionNetwork(nn.Module):
         out = hidden_action.unsqueeze(2).unsqueeze(3).expand_as(hidden_state)
 
         # (h_s, h_a) -> q
-        out = (hidden_state + out).view(out.size(0), -1)
-        out = F.relu(out)
+        out = F.relu(hidden_state + out).view(out.size(0), -1)
         out = F.relu(self.fc1(out))
         out = F.relu(self.fc2(out))
         out = F.sigmoid(self.fc3(out))

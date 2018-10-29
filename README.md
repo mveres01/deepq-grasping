@@ -8,3 +8,5 @@
 - CEM saturates easy, so try and prevent it from sticking to a particular value quickly early on
 - DDPG seems to need a lower gamma value (i.e. ~0.85) in order to converge on stable values, in comparison to DQN and DDQN which use values >= 0.9
 - Need a large L2 penalty (i.e. 0.01) in supervised learning to prevent overfitting 
+
+- Important: When using supervised learning, constrain the optimization on z-dim; otherwise, the model may choose z's that take the gripper away from the object, even though the dataset contains very few instances of this behaviour

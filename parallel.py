@@ -227,7 +227,7 @@ def main(args):
 
                 scheduler.step()
                 for param_group in model.optimizer.param_groups:
-                    param_group['lr'] = max(param_group['lr'], 1e-6)
+                    param_group['lr'] = max(param_group['lr'], 1e-7)
 
                 print('Epoch: %s, Step: %2.4f, Reward: %1.2f, Loss: %2.4f, Took:%2.4fs'%\
                      (ep, np.mean(step_queue), np.mean(reward_queue),
@@ -280,7 +280,7 @@ if __name__ == '__main__':
     # Environment Parameters
     parser.add_argument('--max-steps', default=15, type=int)
     parser.add_argument('--render', action='store_true', default=False)
-    parser.add_argument('--is-test', action='store_true', default=False)
+    parser.add_argument('--test', dest='is_test', action='store_true', default=False)
 
     # Distributed Parameters
     parser.add_argument('--rollouts', default=8, type=int)

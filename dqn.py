@@ -4,6 +4,8 @@ import numpy as np
 import torch
 
 from base.network import BaseNetwork
+from base.optimizer import CEMOptimizer, UniformOptimizer
+
 
 class DQN:
 
@@ -16,6 +18,9 @@ class DQN:
         self.model = BaseNetwork(**config).to(config['device'])
         self.target = copy.deepcopy(self.model)
         self.target.eval()
+
+        self.cem = CEMOptimizer(**config)
+        self.uniform = UniformOptimizer(**config)
 
         self.optimizer = torch.optim.Adam(self.model.parameters(),
                                           config['lrate'],
@@ -52,7 +57,7 @@ class DQN:
         if np.random.random() < explore_prob:
             return np.random.uniform(*self.bounds, size=(self.action_size,))
 
-        return self.model.sample_action(state, timestep)
+        return self.cem(self.model, state, timestep)[0].detach()
 
     def train(self, memory, gamma, batch_size, **kwargs):
         """Performs a single step of Q-Learning."""
@@ -68,14 +73,16 @@ class DQN:
         t0 = torch.from_numpy(timestep).to(self.device)
         t1 = torch.from_numpy(timestep + 1).to(self.device)
 
-        # Train the models
         pred = self.model(s0, t0, act).view(-1)
 
         # We don't calculate a gradient for the target network; these
         # weights instead get updated by copying the prediction network
         # weights every few training iterations
         with torch.no_grad():
-            target = r + (1. - term) * gamma * self.target(s1, t1).view(-1)
+
+            _, qopt = self.uniform(self.target, s1, t1)
+            
+            target = r + (1. - term) * gamma * qopt
 
         loss = torch.pow(pred - target, 2).mean()
 

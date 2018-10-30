@@ -6,6 +6,7 @@ import torch.nn.functional as F
 
 from base.network import BaseNetwork
 from base.memory import BaseMemory
+from base.optimizer import CEMOptimizer
 
 
 class Memory(BaseMemory):
@@ -73,6 +74,9 @@ class Supervised:
 
         self.model = BaseNetwork(**config).to(config['device'])
 
+        self.cem = CEMOptimizer(**config)
+        self.uniform = UniformOptimizer(**config)
+
         self.optimizer = torch.optim.Adam(self.model.parameters(),
                                           config['lrate'],
                                           betas=(0.5, 0.99),
@@ -105,7 +109,7 @@ class Supervised:
         if np.random.random() < explore_prob:
             return np.random.uniform(*self.bounds, size=(self.action_size,))
 
-        return self.model.sample_action(state, timestep)
+        return self.cem(self.model, state, timestep)[0].detach()
 
     def train(self, memory, batch_size, **kwargs):
         """Performs a single training step."""
@@ -124,7 +128,6 @@ class Supervised:
         t0 = torch.from_numpy(timestep).to(self.device)
 
         pred = self.model(s0, t0, act).clamp(1e-6, 1-1e-6).view(-1)
-
 
         # Uses the outcome of the episode as individual step label
         loss = torch.nn.BCELoss(weight=weight)(pred, r)

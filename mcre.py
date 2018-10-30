@@ -6,6 +6,7 @@ import torch.optim as optim
 
 from base.network import BaseNetwork
 from base.memory import BaseMemory
+from base.optimizer import CEMOptimizer, UniformOptimizer
 
 
 class Memory(BaseMemory):
@@ -70,6 +71,8 @@ class MCRE:
         self.device = config['device']
         self.bounds = config['bounds']
 
+        self.cem = CEMOptimizer(**config)
+
         self.optimizer = torch.optim.Adam(self.model.parameters(),
                                           config['lrate'],
                                           betas=(0.5, 0.99),
@@ -103,7 +106,7 @@ class MCRE:
         if np.random.random() < explore_prob:
             return np.random.uniform(*self.bounds, size=(self.action_size,))
 
-        return self.model.sample_action(state, timestep)
+        return self.cem(self.model, state, timestep)[0].detach()
 
     def train(self, memory, gamma, batch_size, **kwargs):
 

@@ -73,29 +73,14 @@ class StateActionNetwork(nn.Module):
 class BaseNetwork(nn.Module):
     """Implements the main (state, action) -> (outcome) network.
 
-    This module is shared across several different learning algorithms. When
-    an action is passed as input, it will use that in calculating an output
-    grasp probability. When an action is missing, this module will calculate
-    an action by performing an optimization using either the cross entropy
-    method, or a uniform optimizer.
-
-    To make optimization more efficient, the network is split into different
-    processing blocks. The expensive state computation is performed only once,
-    and the hidden representation is replicated to match the number of action
-    samples we wish to evaluate.
+    To make optimization more efficient (with CEM or Uniform action optimizers),
+    the network is split into different processing blocks. The expensive state 
+    computation is performed only once, while the hidden action representations 
+    may be called repeatedly during the optimization process.
     """
 
-    def __init__(self, out_channels, action_size, num_uniform, num_cem,
-                 cem_iter, cem_elite, device, bounds=(-1, 1), **kwargs):
+    def __init__(self, out_channels, action_size, **kwargs):
         super(BaseNetwork, self).__init__()
-
-        self.action_size = action_size
-        self.num_uniform = num_uniform
-        self.num_cem = num_cem
-        self.cem_iter = cem_iter
-        self.cem_elite = cem_elite
-        self.device = device
-        self.bounds = bounds  # action bounds for sampling / optimization
 
         self.state_net = StateNetwork(out_channels)
         self.action_net = ActionNetwork(action_size, out_channels + 1)
@@ -105,123 +90,15 @@ class BaseNetwork(nn.Module):
             if len(param.shape) > 1:
                 nn.init.xavier_normal_(param)
 
-    @torch.no_grad()
-    def _cem_optimizer(self, hidden_state):
-        """Implements the cross entropy method.
-
-        Note that the CEM method is (generally) only run in evaluation mode, 
-        where a single sample is optimized at a time. However, this function 
-        supports batch sizes > 0
-
-        See: https://en.wikipedia.org/wiki/Cross-entropy_method
-        """
-
-        self.eval()
-
-        batch = hidden_state.size(0)
-
-        # Repeat the samples along dim 1 so extracting action later is easy
-        # (B, N, R, C) -> repeat (B, Cem, N, R, C) -> (B * Cem, N, R, C)
-        hidden_state = hidden_state.unsqueeze(1)\
-                                   .repeat(1, self.num_cem, 1, 1, 1)\
-                                   .view(-1, *hidden_state.size()[1:])
-
-        mu = torch.zeros(batch, 1, self.action_size, device=self.device)
-        std = torch.ones_like(mu) * 0.5
-
-        for i in range(self.cem_iter):
-
-            # Sample actions from the Gaussian parameterized by (mu, std)
-            action = torch.normal(mu.expand(batch, self.num_cem, -1),
-                                  std.expand(batch, self.num_cem, -1))\
-                                 .clamp(*self.bounds).to(self.device)
-            action = action.view(batch * self.num_cem, -1)
-
-            hidden_action = self.action_net(action)
-
-            q = self.qnet(hidden_state, hidden_action).view(batch, self.num_cem)
-
-            # Find the top actions and use them to update the sampling dist
-            _, topk = torch.topk(q, self.cem_elite, dim=1)
-
-            # Book-keeping to extract topk actions for each batch sample
-            topk = topk.unsqueeze(2).expand(-1, -1, self.action_size)
-            action = action.view(batch, self.num_cem, self.action_size)
-            action = torch.gather(action, 1, topk)
-
-            s = np.sqrt(max(1. - i / self.cem_iter, 0))
-
-            mu = action.mean(dim=1, keepdim=True).detach()
-            std = action.std(dim=1, keepdim=True).detach() + s
-
-        self.train()
-        return mu.squeeze(1)
-
-    @torch.no_grad()
-    def _uniform_optimizer(self, hidden_state):
-        """Used during training to find the most likely actions.
-
-        This function samples a batch of vectors from [-1, 1], and computes
-        the Q value using the corresponding state. The action with the
-        highest Q value is returned as the optimal action.
-        """
-
-        self.eval()
-
-        # Repeat the samples along dim 1 so extracting action later is easy
-        # (B, N, R, C) -> repeat (B, Unif, N, R, C) -> (B * Unif, N, R, C)
-        hidden = hidden_state.unsqueeze(1)\
-                             .repeat(1, self.num_uniform, 1, 1, 1)\
-                             .view(-1, *hidden_state.size()[1:])
-
-        # Sample uniform actions actions between environment bounds
-        actions = torch.zeros((hidden.size(0), self.action_size),
-                              device=self.device).uniform_(*self.bounds)
-
-        q = self.qnet(hidden, self.action_net(actions))
-
-        # Reshape to (Batch, Uniform) to find max action along dim=1
-        top1 = q.view(-1, self.num_uniform).argmax(1)
-
-        # Need to reshape the vectors to index the proper actions
-        top1 = top1.view(-1, 1, 1).expand(-1, 1, self.action_size)
-        actions = actions.view(-1, self.num_uniform, self.action_size)
-        actions = torch.gather(actions, 1, top1).squeeze(1)
-
-        self.train()
-        return actions
-
-    def forward(self, image, time, action=None):
-        """Calculates the Q-value for a given state and action.
-
-        During training, the current policy will execute a recorded action and
-        observe the output Q value. The target policy is required to find
-        an optimal action, which we do using the uniform optimizer.
-        """
+    def forward(self, image, time, action):
+        """Calculates the Q-value for a given state and action."""
 
         hidden_state = self.state_net(image, time)
-
-        # If no action is given, we need to first calculate an optimal action,
-        # then return the Q-value associated with it. Having to re-compute
-        # the Q-value is a tad inefficient, but for small networks is OK
-        if action is None:
-            action = self._uniform_optimizer(hidden_state)
-
         hidden_action = self.action_net(action)
+
         return self.qnet(hidden_state, hidden_action)
 
     @torch.no_grad()
-    def sample_action(self, image, time, mode='cem'):
-        """Uses the CEM optimizer to sample an action in the environment."""
-
-        with torch.no_grad():
-
-            if isinstance(image, np.ndarray):
-                image = torch.from_numpy(image).to(self.device)
-            if isinstance(time, float):
-                time = torch.tensor([time], device=self.device)
-
-            hidden = self.state_net(image, time)
-            if mode == 'cem':
-                return self._cem_optimizer(hidden).detach()
-            return self._uniform_optimizer(hidden).detach()
+    def optim_forward(self, hidden_state, action):
+        """Passed to an optimizer to calculate optimal action"""
+        return self.qnet(hidden_state, self.action_net(action))

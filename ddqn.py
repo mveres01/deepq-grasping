@@ -4,6 +4,7 @@ import numpy as np
 import torch
 
 from base.network import BaseNetwork
+from base.optimizer import CEMOptimizer, UniformOptimizer
 
 
 class DDQN:
@@ -17,6 +18,9 @@ class DDQN:
         self.model = BaseNetwork(**config).to(config['device'])
         self.target = copy.deepcopy(self.model)
         self.target.eval()
+
+        self.cem = CEMOptimizer(**config)
+        self.uniform = UniformOptimizer(**config)
 
         self.optimizer = torch.optim.Adam(self.model.parameters(),
                                           config['lrate'],
@@ -51,12 +55,10 @@ class DDQN:
     def sample_action(self, state, timestep, explore_prob):
         """Samples an action to perform in the environment."""
 
-        self.model.eval()
-
         if np.random.random() < explore_prob:
             return np.random.uniform(*self.bounds, size=(self.action_size,))
 
-        return self.model.sample_action(state, timestep)
+        return self.cem(self.model, state, timestep)[0].detach()
 
     def train(self, memory, gamma, batch_size, **kwargs):
         """Performs a single step of Q-Learning."""
@@ -79,10 +81,10 @@ class DDQN:
         with torch.no_grad():
 
             # DDQN works by finding the maximal action for the current policy
-            ap = self.model.sample_action(s1, t1, mode='uniform')
+            aopt, _ = self.uniform(self.model, s1, t1)
 
             # but using the q-value from the target network
-            target = r + (1. - done) * gamma * self.target(s1, t1, ap).view(-1)
+            target = r + (1. - done) * gamma * self.target(s1, t1, aopt).view(-1)
 
         loss = torch.mean((pred - target) ** 2).clamp(-1, 1)
 

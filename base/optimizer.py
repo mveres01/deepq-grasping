@@ -2,6 +2,16 @@ import torch
 import numpy as np
 
 
+def _preprocess_inputs(image, timestep, device):
+
+    if isinstance(image, np.ndarray):
+        image = torch.from_numpy(image).to(device)
+    if isinstance(timestep, float):
+        timestep = torch.tensor([timestep], device=device)
+
+    return image, timestep
+
+
 class CEMOptimizer:
     """Implements the cross entropy method.
 
@@ -25,22 +35,21 @@ class CEMOptimizer:
     @torch.no_grad()
     def __call__(self, network, image, timestep):
 
-        if isinstance(image, np.ndarray):
-            image = torch.from_numpy(image).to(self.device)
-        if isinstance(timestep, float):
-            timestep = torch.tensor([timestep], device=self.device)
-
         network.eval()
+
+        image, timestep = _preprocess_inputs(image, timestep, self.device)
+
+        # We repeat the hidden state representation of the input (rather
+        # then the raw input itself) to save some memory
         state = network.state_net(image, timestep)
 
-        mu = torch.zeros(state.size(0), 1, self.action_size, device=self.device)
-        std = torch.ones_like(mu) * 0.5
-
-        # Repeat the samples along dim 1 so extracting action later is easy
         # (B, N, R, C) -> repeat (B, Cem, N, R, C) -> (B * Cem, N, R, C)
         state = state.unsqueeze(1) \
                      .repeat(1, self.pop_size, 1, 1, 1) \
                      .view(-1, *state.size()[1:])
+
+        mu = torch.zeros(image.size(0), 1, self.action_size, device=self.device)
+        std = torch.ones_like(mu) * 0.5
 
         for i in range(self.iters):
 
@@ -77,6 +86,11 @@ class UniformOptimizer:
     This function samples a batch of vectors from [-1, 1], and computes
     the Q value using the corresponding state. The action with the
     highest Q value is returned as the optimal action.
+
+    As we train with minibatchs of examples (i.e. batch_size > 1), we 
+    calculate the optimal action over all samples by repeating the inputs 
+    to get batch size of (num_samples * num_repeats, ... ), and then pass
+    everything through the network at once
     """
 
     def __init__(self, num_uniform, action_size, bounds, device, **kwargs):
@@ -89,21 +103,20 @@ class UniformOptimizer:
     @torch.no_grad()
     def __call__(self, network, image, timestep):
 
-        if isinstance(image, np.ndarray):
-            image = torch.from_numpy(image).to(self.device)
-        if isinstance(timestep, float):
-            timestep = torch.tensor([timestep], device=self.device)
-
         network.eval()
-        state = network.state_net(image, timestep)
 
-        # Repeat the samples along dim 1 so extracting action later is easy
+        image, timestep = _preprocess_inputs(image, timestep, self.device)
+
+        # We repeat the hidden state representation of the input (rather 
+        # then the raw input itself) to save some memory
+        state = network.state_net(image, timestep)
+        
         # (B, N, R, C) -> repeat (B, Unif, N, R, C) -> (B * Unif, N, R, C)
         state = state.unsqueeze(1)\
                      .repeat(1, self.pop_size, 1, 1, 1)\
                      .view(-1, *state.size()[1:])
 
-        # Sample uniform actions actions between environment bounds
+        # Sample actions uniformly 
         actions = torch.zeros((state.size(0), self.action_size),
                               device=self.device).uniform_(*self.bounds)
 

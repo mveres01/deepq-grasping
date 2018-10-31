@@ -47,7 +47,6 @@ class Memory(BaseMemory):
 
             start, end = end, end + 1
 
-
         '''
         import matplotlib
         matplotlib.use('Agg')
@@ -63,6 +62,7 @@ class Memory(BaseMemory):
         plt.savefig('hist.png')
         plt.close('all')
         '''
+
 
 class Supervised:
 
@@ -83,9 +83,11 @@ class Supervised:
                                           weight_decay=config['decay'])
 
     def get_weights(self):
+
         return self.model.state_dict()
 
     def set_weights(self, weights):
+
         self.model.load_state_dict(weights)
 
     def load_checkpoint(self, checkpoint_dir):
@@ -93,14 +95,18 @@ class Supervised:
 
         if not os.path.exists(checkpoint_dir):
             raise Exception('No checkpoint directory <%s>'%checkpoint_dir)
-        self.model.load_state_dict(torch.load(checkpoint_dir + '/model.pt', self.device))
+
+        path = os.path.join(checkpoint_dir, 'model.pt')
+        self.model.load_state_dict(torch.load(path, self.device))
 
     def save_checkpoint(self, checkpoint_dir):
         """Saves a model to a directory containing a single checkpoint."""
 
         if not os.path.exists(checkpoint_dir):
             os.makedirs(checkpoint_dir)
-        torch.save(self.model.state_dict(), checkpoint_dir + '/model.pt')
+
+        path = os.path.join(checkpoint_dir, 'model.pt')
+        torch.save(self.model.state_dict(), path)
 
     @torch.no_grad()
     def sample_action(self, state, timestep, explore_prob):

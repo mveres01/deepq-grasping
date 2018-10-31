@@ -43,13 +43,14 @@ class DDPG:
         self.bounds = config['bounds']
 
         self.critic = BaseNetwork(**config).to(config['device'])
+
         self.critic_target = copy.deepcopy(self.critic)
+        self.critic_target.eval()
 
         self.model = Actor(config['out_channels'], 
                            config['action_size']).to(config['device'])
-        self.model_target = copy.deepcopy(self.model)
 
-        self.critic_target.eval()
+        self.model_target = copy.deepcopy(self.model)
         self.model_target.eval()
 
         self.aopt = torch.optim.Adam(self.model.parameters(),
@@ -61,7 +62,8 @@ class DDPG:
                                      config['lrate'],
                                      betas=(0.5, 0.99),
                                      weight_decay=config['decay'])
-
+        
+        # TODO: hacky interface for class, fix this 
         self.optimizer = self.aopt
 
     def get_weights(self):
@@ -83,11 +85,11 @@ class DDPG:
         if not os.path.exists(checkpoint_dir):
             raise Exception('No checkpoint directory <%s>' % checkpoint_dir)
 
-        weights = torch.load(checkpoint_dir + '/actor.pt', self.device)
-        self.model.load_state_dict(weights)
+        path = os.path.join(checkpoint_dir, 'actor.pt')
+        self.model.load_state_dict(torch.load(path, self.device))
 
-        weights = torch.load(checkpoint_dir + '/critic.pt', self.device)
-        self.critic.load_state_dict(weights)
+        path = os.path.join(checkpoint_dir, 'critic.pt')
+        self.critic.load_state_dict(torch.load(path, self.device))
         self.update()
 
     def save_checkpoint(self, checkpoint_dir):
@@ -95,8 +97,11 @@ class DDPG:
         if not os.path.exists(checkpoint_dir):
             os.makedirs(checkpoint_dir)
 
-        torch.save(self.model.state_dict(), checkpoint_dir + '/actor.pt')
-        torch.save(self.critic.state_dict(), checkpoint_dir + '/critic.pt')
+        path = os.path.join(checkpoint_dir, 'actor.pt')
+        torch.save(self.model.state_dict(), path)
+
+        path = os.path.join(checkpoint_dir, 'critic.pt')
+        torch.save(self.critic.state_dict(), path)
 
     @torch.no_grad()
     def sample_action(self, state, timestep, explore_prob):
@@ -128,29 +133,30 @@ class DDPG:
         t0 = torch.from_numpy(timestep).to(self.device)
         t1 = torch.from_numpy(timestep + 1.).to(self.device)
 
-        # Train the models
+        # Train the critic
         pred = self.critic(s0, t0, act).view(-1)
 
-        # Training the critic is through Mean Squared Error
         with torch.no_grad():
 
             at = self.model_target(s1, t1)
             qt = self.critic_target(s1, t1, at).view(-1)
             target = r + (1. - term) * gamma * qt
 
-        loss = torch.mean((pred - target) ** 2).clamp(-1, 1)
+        loss = torch.mean((pred - target) ** 2)#.clamp(-1, 1)
 
         self.aopt.zero_grad()
         self.copt.zero_grad()
         loss.backward()
+        torch.nn.utils.clip_grad_norm_(self.critic.parameters(), 10.)
         self.copt.step()
         self.copt.zero_grad()
 
         # Update the actor network by following the policy gradient
-        q_pred = -self.critic(s0, t0, self.model(s0, t0)).mean().clamp(-1, 1)
+        q_pred = -self.critic(s0, t0, self.model(s0, t0)).mean()#.clamp(-1, 1)
 
         self.aopt.zero_grad()
         q_pred.backward()
+        torch.nn.utils.clip_grad_norm_(self.model.parameters(), 10.)
         self.aopt.step()
         self.aopt.zero_grad()
         self.copt.zero_grad()
@@ -158,6 +164,14 @@ class DDPG:
         return loss.item()
 
     def update(self):
+
+        # DDPG optimizes two different networks, so we'll match the 
+        # learning rate between them; 
+        # TODO: Add LR optimizer to each class to take care of this 
+        # instead
+        lr = self.aopt.param_groups[0]['lr']
+        for param_group in self.copt.param_groups:
+            param_group['lr'] = max(param_group['lr'], lr)
 
         self.model_target.load_state_dict(self.model.state_dict())
         self.critic_target.load_state_dict(self.critic.state_dict())

@@ -70,8 +70,7 @@ class CEMOptimizer:
             action = action.view(-1, self.pop_size, self.action_size)
             action = torch.gather(action, 1, topk)
 
-            s = np.sqrt(max(2. - i / self.iters, 0))
-            #s = np.sqrt(max(5. - i / 10., 0))
+            s = np.sqrt(max(3. - i / self.iters, 0))
 
             mu = action.mean(dim=1, keepdim=True).detach()
             std = action.std(dim=1, keepdim=True).detach() + s

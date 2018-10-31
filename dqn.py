@@ -16,6 +16,7 @@ class DQN:
         self.bounds = config['bounds']
 
         self.model = BaseNetwork(**config).to(config['device'])
+
         self.target = copy.deepcopy(self.model)
         self.target.eval()
 
@@ -27,9 +28,11 @@ class DQN:
                                           weight_decay=config['decay'])
 
     def get_weights(self):
+
         return (self.model.state_dict(), self.target.state_dict())
 
     def set_weights(self, weights):
+
         self.model.load_state_dict(weights[0])
         self.target.load_state_dict(weights[1])
 
@@ -39,8 +42,8 @@ class DQN:
         if not os.path.exists(checkpoint_dir):
             raise Exception('No checkpoint directory <%s>' % checkpoint_dir)
 
-        weights = torch.load(checkpoint_dir + '/model.pt', self.device)
-        self.model.load_state_dict(weights)
+        path = os.path.join(checkpoint_dir, 'model.pt')
+        self.model.load_state_dict(torch.load(path, self.device))
         self.update()
 
     def save_checkpoint(self, checkpoint_dir):
@@ -48,7 +51,9 @@ class DQN:
 
         if not os.path.exists(checkpoint_dir):
             os.makedirs(checkpoint_dir)
-        torch.save(self.model.state_dict(), checkpoint_dir + '/model.pt')
+
+        path = os.path.join(checkpoint_dir, 'model.pt')
+        torch.save(self.model.state_dict(), path)
 
     @torch.no_grad()
     def sample_action(self, state, timestep, explore_prob):
@@ -62,7 +67,7 @@ class DQN:
     def train(self, memory, gamma, batch_size, **kwargs):
         """Performs a single step of Q-Learning."""
 
-        # Sample data from the memory buffer & put on GPU
+        # Sample a minibatch from the memory buffer
         s0, act, r, s1, term, timestep = memory.sample(batch_size)
 
         s0 = torch.from_numpy(s0).to(self.device)
@@ -75,22 +80,19 @@ class DQN:
 
         pred = self.model(s0, t0, act).view(-1)
 
-        # We don't calculate a gradient for the target network; these
-        # weights instead get updated by copying the prediction network
-        # weights every few training iterations
         with torch.no_grad():
 
+            # Expectation over all actions while in a state
             _, qopt = self.uniform(self.target, s1, t1)
             
             target = r + (1. - term) * gamma * qopt
 
-        loss = torch.pow(pred - target, 2).mean()
+        loss = torch.mean((pred - target) ** 2)
 
         self.optimizer.zero_grad()
         loss.backward()
         torch.nn.utils.clip_grad_norm_(self.model.parameters(), 10.)
         self.optimizer.step()
-        self.model.zero_grad()
 
         return loss.detach()
 

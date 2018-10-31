@@ -112,6 +112,8 @@ def make_model(args, device):
         from supervised import Supervised as Model
     elif args.model == 'mcre':
         from mcre import MCRE as Model
+    elif args.model == 'cmcre':
+        from cmcre import CMCRE as Model
     else:
         raise NotImplementedError('Model <%s> not implemented' % args.model)
 
@@ -133,6 +135,8 @@ def make_memory(model, buffer_size, state_size, action_size):
         from supervised import Memory
     elif model == 'mcre':
         from mcre import Memory
+    elif model == 'cmcre':
+        from cmcre import Memory
     else:
         Memory = BaseMemory
 

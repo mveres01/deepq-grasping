@@ -40,13 +40,7 @@ class Memory(BaseMemory):
             start, end = end, end + 1
 
     def sample(self, batch_size, batch_idx=None):
-        """Samples grasping episodes rather then single timesteps.
-
-        This function will sample :batch_size: episodes from memory,
-        and return a generator that can be used to iterate over all
-        sampled episodes one-by-one. This allows us to doo messy
-        specification for uneven episode lengths
-        """
+        """Samples grasping episodes rather then single timesteps."""
 
         # Find where each episode in the memory buffer starts
         starts = np.where(self.timestep == 0)[0]
@@ -65,11 +59,11 @@ class MCRE:
 
     def __init__(self, config):
 
-        self.model = BaseNetwork(**config).to(config['device'])
-
         self.action_size = config['action_size']
         self.device = config['device']
         self.bounds = config['bounds']
+
+        self.model = BaseNetwork(**config).to(config['device'])
 
         self.cem = CEMOptimizer(**config)
 
@@ -79,9 +73,11 @@ class MCRE:
                                           weight_decay=config['decay'])
 
     def get_weights(self):
+
         return self.model.state_dict()
 
     def set_weights(self, weights):
+
         self.model.load_state_dict(weights)
 
     def load_checkpoint(self, checkpoint_dir):
@@ -89,15 +85,18 @@ class MCRE:
 
         if not os.path.exists(checkpoint_dir):
             raise Exception('No checkpoint directory <%s>'%checkpoint_dir)
-        self.model.load_state_dict(torch.load(checkpoint_dir + '/model.pt',
-                                              self.device))
+
+        weights = torch.load(os.path.join(checkpoint_dir, 'model.pt'), self.device)
+        self.model.load_state_dict(weights)
 
     def save_checkpoint(self, checkpoint_dir):
         """Saves a model to a directory containing a single checkpoint."""
 
         if not os.path.exists(checkpoint_dir):
             os.makedirs(checkpoint_dir)
-        torch.save(self.model.state_dict(), checkpoint_dir + '/model.pt')
+
+        path = os.path.join(checkpoint_dir, 'model.pt')
+        torch.save(self.model.state_dict(), path)
 
     @torch.no_grad()
     def sample_action(self, state, timestep, explore_prob):
@@ -110,7 +109,7 @@ class MCRE:
 
     def train(self, memory, gamma, batch_size, **kwargs):
 
-        # Sample data from the memory buffer & put on GPU
+        # Sample a minibatch from the memory buffer
         s0, act, r, _, _, timestep = memory.sample(batch_size // 8)
 
         s0 = torch.from_numpy(s0).to(self.device)

@@ -28,9 +28,11 @@ class DDQN:
                                           weight_decay=config['decay'])
 
     def get_weights(self):
+
         return (self.model.state_dict(), self.target.state_dict())
 
     def set_weights(self, weights):
+
         self.model.load_state_dict(weights[0])
         self.target.load_state_dict(weights[1])
 
@@ -40,8 +42,8 @@ class DDQN:
         if not os.path.exists(checkpoint_dir):
             os.makedirs(checkpoint_dir)
 
-        weights = torch.load(checkpoint_dir + '/model.pt', self.device)
-        self.model.load_state_dict(weights)
+        path = os.path.join(checkpoint_dir, 'model.pt')
+        self.model.load_state_dict(torch.load(path, self.device))
         self.update()
 
     def save_checkpoint(self, checkpoint_dir):
@@ -49,7 +51,9 @@ class DDQN:
 
         if not os.path.exists(checkpoint_dir):
             os.makedirs(checkpoint_dir)
-        torch.save(self.model.state_dict(), checkpoint_dir + '/model.pt')
+
+        path = os.path.join(checkpoint_dir, 'model.pt')
+        torch.save(self.model.state_dict(), path)
 
     @torch.no_grad()
     def sample_action(self, state, timestep, explore_prob):
@@ -65,7 +69,7 @@ class DDQN:
 
         self.model.train()
 
-        # Sample data from the memory buffer & put on GPU
+        # Sample a minibatch from the memory buffer
         s0, act, r, s1, done, timestep = memory.sample(batch_size)
 
         s0 = torch.from_numpy(s0).to(self.device)
@@ -86,10 +90,11 @@ class DDQN:
             # but using the q-value from the target network
             target = r + (1. - done) * gamma * self.target(s1, t1, aopt).view(-1)
 
-        loss = torch.mean((pred - target) ** 2).clamp(-1, 1)
+        loss = torch.mean((pred - target) ** 2)#.clamp(-1, 1)
 
         self.optimizer.zero_grad()
         loss.backward()
+        torch.nn.utils.clip_grad_norm_(self.model.parameters(), 10.)
         self.optimizer.step()
 
         return loss.detach()

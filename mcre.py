@@ -14,7 +14,7 @@ class Memory(BaseMemory):
     def __init__(self, *args, **kwargs):
         super(Memory, self).__init__(*args, **kwargs)
 
-    def load(self, data_dir, buffer_size=100000, gamma=0.92, **kwargs):
+    def load(self, gamma=0.92, *args, **kwargs):
         """Modifies the reward of loaded data to be discounted future sum.
 
         The off-policy version of MCRE (this file) returns an entire episode
@@ -22,15 +22,15 @@ class Memory(BaseMemory):
         sparse reward task, we'll initialize the reward to be discounted so
         it won't have to be re-computed every time on the fly.
         """
-        super(Memory, self).load(data_dir, buffer_size)
+        super(Memory, self).load(*args, **kwargs)
 
         # Find where episodes start and end, and modify them based on
         # the discount rate gamma
         start, end = 0, 1
-        while end < self.state.shape[0]:
+        while end < self.buffer_size:
 
             while self.timestep[end] > self.timestep[start]:
-                if end >= self.state.shape[0] - 1:
+                if end >= self.buffer_size - 1:
                     break
                 end = end + 1
 

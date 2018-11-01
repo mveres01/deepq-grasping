@@ -56,12 +56,12 @@ def collect_experience(env, memory, print_status_every=25):
             total_step = total_step + 1
 
             if total_step % print_status_every == 0:
-                print('Memory capacity: %d/%d' % (memory.cur_idx, memory.max_size))
+                print('Memory capacity: %d/%d' % (memory.cur_idx, memory.buffer_size))
 
 
 class BaseMemory(Dataset):
 
-    def __init__(self, max_size, state_size, action_size, **kwargs):
+    def __init__(self, buffer_size, state_size, action_size, **kwargs):
 
         if not isinstance(state_size, tuple):
             raise Exception(':param state_size: must be type <tuple>')
@@ -71,17 +71,19 @@ class BaseMemory(Dataset):
 
         self.cur_idx = 0
         self.is_full = False
-        self.max_size = max_size
+        self.state_size = state_size
+        self.action_size = action_size
+        self.buffer_size = buffer_size
 
-        self.state = np.zeros((max_size,) + state_size, dtype=np.uint8)
-        self.action = np.zeros((max_size,) + action_size, dtype=np.float32)
-        self.reward = np.zeros((max_size,), dtype=np.float32)
-        self.next_state = np.zeros((max_size,) + state_size, dtype=np.uint8)
-        self.terminal = np.zeros((max_size,), dtype=np.float32)
-        self.timestep = np.zeros((max_size,), dtype=np.float32)
+        self.state = None
+        self.action = None
+        self.reward = None
+        self.next_state = None
+        self.terminal = None
+        self.timestep = None
 
     def __len__(self):
-        return self.max_size
+        return self.buffer_size
 
     def __getitem__(self, idx):
         return (np.float32(self.state[idx]) / 255.,
@@ -93,8 +95,23 @@ class BaseMemory(Dataset):
 
     def add(self, state, action, reward, next_state, terminal, timestep):
 
+        # In the off-policy setting, adding to a dataset means we're doing 
+        # data collections. Initialize empty memory to hold necessary info
+        # TODO: Find a more efficient way of doing this; memory map a file?
+        if self.state is None:
+
+            self.state = np.zeros((self.buffer_size,) + self.state_size, 
+                                  dtype=np.uint8)
+            self.action = np.zeros((self.buffer_size,) + self.action_size, 
+                                   dtype=np.float32)
+            self.reward = np.zeros((self.buffer_size,), dtype=np.float32)
+            self.next_state = np.zeros((self.buffer_size,) + self.state_size, 
+                                       dtype=np.uint8)
+            self.terminal = np.zeros((self.buffer_size,), dtype=np.float32)
+            self.timestep = np.zeros((self.buffer_size,), dtype=np.float32)
+
         batch_size = state.shape[0]
-        store_idx = np.roll(np.arange(self.max_size), -self.cur_idx)[:batch_size]
+        store_idx = np.roll(np.arange(self.buffer_size), -self.cur_idx)[:batch_size]
 
         self.state[store_idx] = state
         self.action[store_idx] = action
@@ -103,39 +120,48 @@ class BaseMemory(Dataset):
         self.terminal[store_idx] = terminal
         self.timestep[store_idx] = timestep
 
-        if self.cur_idx + batch_size >= self.max_size:
+        if self.cur_idx + batch_size >= self.buffer_size:
             self.is_full = True
-        self.cur_idx = (self.cur_idx + batch_size) % self.max_size
+        self.cur_idx = (self.cur_idx + batch_size) % self.buffer_size
 
     def load(self, data_dir, buffer_size=100000, **kwargs):
+        """Loads a dataset using memory-mapping.
 
-        print('Loading state ... ')
-        with open(os.path.join(data_dir, 'state.npy'), 'rb') as f:
-            self.state = np.load(f)[:buffer_size].astype(np.uint8)
+        In particular, the :state: and :next_state: variable of a dataset 
+        take a large amount of space. To avoid OOM issues, load the entire 
+        dataset as being memory-mapped that gets read when needed.
+        """
 
-        print('Loading action ... ')
-        with open(os.path.join(data_dir, 'action.npy'), 'rb') as f:
-            self.action = np.load(f)[:buffer_size].astype(np.float32)
+        if not os.path.exists(data_dir):
+            raise AssertionError('Data directory <%s> does not exist!' % data_dir)
 
-        print('Loading reward ... ')
-        with open(os.path.join(data_dir, 'reward.npy'), 'rb') as f:
-            self.reward = np.load(f)[:buffer_size].astype(np.float32)
+        print('Memory-mapping state (mode=\'r\')... ')
+        self.state = np.load(os.path.join(data_dir, 'state.npy'), mmap_mode='r')
 
-        print('Loading next_state ... ')
-        with open(os.path.join(data_dir, 'next_state.npy'), 'rb') as f:
-            self.next_state = np.load(f)[:buffer_size].astype(np.uint8)
+        print('Memory-mapping action (mode=\'c\') ... ')
+        self.action = np.load(os.path.join(data_dir, 'action.npy'), mmap_mode='c')
 
-        print('Loading terminal ... ')
-        with open(os.path.join(data_dir, 'terminal.npy'), 'rb') as f:
-            self.terminal = np.load(f)[:buffer_size].astype(np.float32)
+        print('Memory-mapping reward (mode=\'c\') ... ')
+        self.reward = np.load(os.path.join(data_dir, 'reward.npy'), mmap_mode='c')
 
-        print('Loading timestep ... ')
-        with open(os.path.join(data_dir, 'timestep.npy'), 'rb') as f:
-            self.timestep = np.load(f)[:buffer_size].astype(np.float32)
+        print('Memory-mapping next_state (mode=\'r\')... ')
+        self.next_state = np.load(os.path.join(data_dir, 'next_state.npy'), mmap_mode='r')
 
+        print('Memory-mapping terminal (mode=\'r\')... ')
+        self.terminal = np.load(os.path.join(data_dir, 'terminal.npy'), mmap_mode='r')
+
+        print('Memory-mapping timestep (mode=\'r\')... ')
+        self.timestep = np.load(os.path.join(data_dir, 'timestep.npy'), mmap_mode='r')
+
+        print('Warning: Do not save memory unless you are aware of potential '
+              'overwrites in the dataset.\n')
+
+        if len(self.state) < self.buffer_size:
+            raise ValueError('Requested %d samples, but dataset only has %d' % \
+                             (self.buffer_size, len(self.state)))
+       
         self.is_full = True
-        self.cur_idx = self.state.shape[0]
-        self.buffer_size = self.state.shape[0]
+        self.cur_idx = self.buffer_size
 
     def sample(self, batch_size, balanced=False):
 
@@ -150,7 +176,7 @@ class BaseMemory(Dataset):
 
             batch_idx = np.hstack((pos, neg))
         else:
-            upper_idx = self.max_size if self.is_full else self.cur_idx
+            upper_idx = self.buffer_size if self.is_full else self.cur_idx
             batch_idx = np.random.randint(0, upper_idx, batch_size)
 
         return self[batch_idx]

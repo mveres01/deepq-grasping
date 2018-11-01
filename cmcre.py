@@ -81,6 +81,62 @@ class CMCRE:
 
         return self.cem(self.model, state, timestep)[0].detach()
 
+    def _loss(self, Q, pred, r, gamma):
+        """Calculates corrected loss over a single episode.
+
+        Assumes that all inputs (Q, pred, r) belong to a single episode 
+        only. These are obtained by slicing the input at each timestep == 0.
+        """
+
+        # As we sample a full episode, we can just take the difference 
+        # between consecutive value predictions as the advantage
+        adv = r.clone() - Q  # set the last element
+        adv[:-1] = r[:-1] + gamma * Q[1:] - Q[:-1]
+
+        out = torch.zeros_like(r)
+        for i in reversed(range(r.shape[0] - 1)):
+            out[i] = gamma * (out[i+1] + (r[i+1] - adv[i+1]))
+        
+        out = (out + r).detach()
+
+        # Later normalize over batch size
+        loss = ((pred - out) ** 2).sum()
+
+        return loss
+
+    def train(self, memory, gamma, batch_size, **kwargs):
+
+        # Sample full episodes from memory
+        s0, act, r, _, _, timestep = memory.sample(batch_size // 8)
+    
+        # Used to help compute proper loss per episode
+        starts = np.hstack((np.where(timestep == 0)[0], r.shape[0]))
+
+        s0 = torch.from_numpy(s0).to(self.device)
+        act = torch.from_numpy(act).to(self.device)
+        r = torch.from_numpy(r).to(self.device)
+        t0 = torch.from_numpy(timestep).to(self.device)
+
+        pred = self.model(s0, t0, act).view(-1)
+   
+        # Calculate V* = \max_a Q(s_t, a)
+        _, Q = self.uniform(self.model, s0, t0)
+   
+        # Sum the loss for each of the episodes
+        loss = 0
+        for s, e in zip(starts[:-1], starts[1:]):
+            loss = loss + self._loss(Q[s:e], pred[s:e], r[s:e], gamma)
+
+        loss = loss / s0.shape[0]
+
+        self.optimizer.zero_grad()
+        loss.backward()
+        torch.nn.utils.clip_grad_norm_(self.model.parameters(), 10.)
+        self.optimizer.step()
+
+        return loss.item()
+
+    """
     def train(self, memory, gamma, batch_size, **kwargs):
 
         # Sample data from the memory buffer & put on GPU
@@ -94,26 +150,20 @@ class CMCRE:
 
         pred = self.model(s0, t0, act).view(-1)
 
-        # V*(s_t) = \max_a Q*(s_t, a)
-        _, qopt = self.uniform(self.model, s0, t0)
+    
+        _, Q = self.uniform(self.model, s0, t0)
+      
+        # As we sample a full episode, we can just take the difference 
+        # between consecutive value predictions as the advantage
+        adv = r.clone() - Q  # set the last element
+        adv[:-1] = r[:-1] + gamma * Q[1:] - Q[:-1]
 
-        # A* = E_{s,a}[r(s_t, a_t) +  gamma * V*(s_{t+1}) - V*(s_t)]
-        # Q*(s_t, a_t) = 
-        #    E_{s, a}[r(s_t, a_t) + 
-        #    \sum_{t'=t+1}^T gamma^{t'-t}(r(s_t', a_t') - A*(s_t', a_t'))
-        #advantage = r + gamma * qopt[1:] - qopt[:-1]
-
-        out = r.clone()
-
-        discount = 0
+        out = torch.zeros_like(r)
         for i in reversed(range(s0.shape[0] - 1)):
+            out[i] = gamma * (out[i+1] + (r[i+1] - adv[i+1]))
+        
+        out = (out + r).detach()
 
-            # Current step + discounted future step we'eve already calculated
-            discount = gamma * (r[i+1] - (pred[i+1] - qopt[i+1]) + discount)
-
-            out[i] = r[i] + discount
-
-        # Note that the reward 'r' has been discounted in memory.load
         loss = torch.mean((pred - out) ** 2)
 
         self.optimizer.zero_grad()
@@ -122,6 +172,7 @@ class CMCRE:
         self.optimizer.step()
 
         return loss.item()
+    """
 
     def update(self):
         pass

@@ -14,20 +14,20 @@ class Memory(BaseMemory):
     def __init__(self, *args, **kwargs):
         super(Memory, self).__init__(*args, **kwargs)
 
-    def load(self, data_dir, buffer_size=100000, **kwargs):
+    def load(self, *args, **kwargs):
         """Converts independent actions and rewards to sequence-based.
 
         This is used for learning to grasp in the supervised learning case.
         + Action labels for each trial is given by: a_t = p_T - p_t
         + Episode labels for timestep in the episode is the episode reward
         """
-        super(Memory, self).load(data_dir, buffer_size)
+        super(Memory, self).load(*args, **kwargs)
 
         start, end = 0, 1
-        while end < self.state.shape[0]:
+        while end < self.buffer_size:
 
             while self.timestep[end] > self.timestep[start]:
-                if end >= self.state.shape[0] - 1:
+                if end >= self.buffer_size - 1:
                     break
                 end = end + 1
 

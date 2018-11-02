@@ -70,7 +70,7 @@ class CEMOptimizer:
             action = action.view(-1, self.pop_size, self.action_size)
             action = torch.gather(action, 1, topk)
 
-            s = np.sqrt(max(3. - i / self.iters, 0))
+            s = max(1. - i / self.iters, 0)
 
             mu = action.mean(dim=1, keepdim=True).detach()
             std = action.std(dim=1, keepdim=True).detach() + s
@@ -86,8 +86,8 @@ class UniformOptimizer:
     the Q value using the corresponding state. The action with the
     highest Q value is returned as the optimal action.
 
-    As we train with minibatchs of examples (i.e. batch_size > 1), we 
-    calculate the optimal action over all samples by repeating the inputs 
+    As we train with minibatchs of examples (i.e. batch_size > 1), we
+    calculate the optimal action over all samples by repeating the inputs
     to get batch size of (num_samples * num_repeats, ... ), and then pass
     everything through the network at once
     """
@@ -106,16 +106,16 @@ class UniformOptimizer:
 
         image, timestep = _preprocess_inputs(image, timestep, self.device)
 
-        # We repeat the hidden state representation of the input (rather 
+        # We repeat the hidden state representation of the input (rather
         # then the raw input itself) to save some memory
         state = network.state_net(image, timestep)
-        
+
         # (B, N, R, C) -> repeat (B, Unif, N, R, C) -> (B * Unif, N, R, C)
         state = state.unsqueeze(1)\
                      .repeat(1, self.pop_size, 1, 1, 1)\
                      .view(-1, *state.size()[1:])
 
-        # Sample actions uniformly 
+        # Sample actions uniformly
         actions = torch.zeros((state.size(0), self.action_size),
                               device=self.device).uniform_(*self.bounds)
 

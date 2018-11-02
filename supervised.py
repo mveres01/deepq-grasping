@@ -75,7 +75,6 @@ class Supervised:
         self.model = BaseNetwork(**config).to(config['device'])
 
         self.cem = CEMOptimizer(**config)
-        self.uniform = UniformOptimizer(**config)
 
         self.optimizer = torch.optim.Adam(self.model.parameters(),
                                           config['lrate'],

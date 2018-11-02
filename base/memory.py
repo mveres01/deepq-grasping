@@ -61,18 +61,10 @@ def collect_experience(env, memory, print_status_every=25):
 
 class BaseMemory(Dataset):
 
-    def __init__(self, buffer_size, state_size, action_size, **kwargs):
-
-        if not isinstance(state_size, tuple):
-            raise Exception(':param state_size: must be type <tuple>')
-
-        if not isinstance(action_size, tuple):
-            action_size = (action_size, )
+    def __init__(self, buffer_size, **kwargs):
 
         self.cur_idx = 0
         self.is_full = False
-        self.state_size = state_size
-        self.action_size = action_size
         self.buffer_size = buffer_size
 
         self.state = None
@@ -100,13 +92,13 @@ class BaseMemory(Dataset):
         # TODO: Find a more efficient way of doing this; memory map a file?
         if self.state is None:
 
-            self.state = np.zeros((self.buffer_size,) + self.state_size, 
-                                  dtype=np.uint8)
-            self.action = np.zeros((self.buffer_size,) + self.action_size, 
-                                   dtype=np.float32)
+            state_size = (state.shape[-3], state.shape[-2], state.shape[-1])
+            action_size = (action.shape[0],)
+
+            self.state = np.zeros((self.buffer_size,) + state_size, dtype=np.uint8)
+            self.action = np.zeros((self.buffer_size,) + action_size, dtype=np.float32)
             self.reward = np.zeros((self.buffer_size,), dtype=np.float32)
-            self.next_state = np.zeros((self.buffer_size,) + self.state_size, 
-                                       dtype=np.uint8)
+            self.next_state = np.zeros((self.buffer_size,) + state_size, dtype=np.uint8)
             self.terminal = np.zeros((self.buffer_size,), dtype=np.float32)
             self.timestep = np.zeros((self.buffer_size,), dtype=np.float32)
 

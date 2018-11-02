@@ -122,7 +122,7 @@ def make_model(args, device):
     return create
 
 
-def make_memory(model, buffer_size, state_size, action_size):
+def make_memory(model, buffer_size):
     """Initializes a memory structure.
 
     Some models require slight modifications to the replay buffer,
@@ -140,7 +140,7 @@ def make_memory(model, buffer_size, state_size, action_size):
     else:
         Memory = BaseMemory
 
-    return Memory(buffer_size, state_size, action_size)
+    return Memory(buffer_size)
 
 
 def main(args):
@@ -149,8 +149,12 @@ def main(args):
     Can be used in both training and testing mode.
     """
 
-    np.random.seed(args.seed)
-    torch.manual_seed(args.seed)
+    seed = args.seed
+    if seed is None:
+        seed = np.random.randint(1234567890)
+
+    np.random.seed(seed)
+    torch.manual_seed(seed)
 
     # Make the remote environments; the models aren't very large and can
     # be run fairly quickly on the cpus. Save the GPUs for training
@@ -168,11 +172,6 @@ def main(args):
     if args.checkpoint is not None:
         model.load_checkpoint(args.checkpoint)
 
-    model_parameters = filter(lambda p: p.requires_grad, model.model.parameters())
-    params = sum([np.prod(p.size()) for p in model_parameters])
-    print('Number of parameters: ', params)
-
-
     # Train
     if not args.is_test:
 
@@ -181,13 +180,12 @@ def main(args):
             os.makedirs(checkpoint_dir)
 
         # Some methods have specialized memory implementations
-        memory = make_memory(args.model, args.buffer_size,
-                             state_size=(3, 64, 64), action_size=(4))
+        memory = make_memory(args.model, args.buffer_size)
         memory.load(**vars(args))
 
         scheduler = torch.optim.lr_scheduler.StepLR(model.optimizer, 6, gamma=0.1)
 
-        # Validate the model every full pass through the data
+        # Perform a validation step every full pass through the data
         iters_per_epoch = args.buffer_size // args.batch_size
 
         step_queue = deque(maxlen=max(200, args.rollouts * args.remotes))
@@ -213,21 +211,19 @@ def main(args):
             if episode % (iters_per_epoch // 1) == 0:
 
                 ep = '%d' % (episode // iters_per_epoch)
-                checkpoint = os.path.join(checkpoint_dir, ep)
-                model.save_checkpoint(checkpoint)
+                model.save_checkpoint(os.path.join(checkpoint_dir, ep))
 
                 # Collect results from the previous epoch
                 for device in ray.get(results):
                     step_queue.extend(device[0])
                     reward_queue.extend(device[1])
 
-                # Send the weights out for current epoch
+                # Update weights of remote network & perform rollouts
                 results = []
                 for env in envs:
-                    e = env.rollout.remote(model.get_weights(),
-                                           args.rollouts,
-                                           args.explore)
-                    results.append(e)
+                    results.append(env.rollout.remote(model.get_weights(),
+                                                      args.rollouts,
+                                                      args.explore))
 
                 scheduler.step()
                 for param_group in model.optimizer.param_groups:
@@ -243,10 +239,9 @@ def main(args):
 
     results, steps, rewards = [], [], []
     for env in envs:
-        e = env.rollout.remote(model.get_weights(),
-                               args.rollouts,
-                               args.explore)
-        results.append(e)
+        results.append(env.rollout.remote(model.get_weights(),
+                                          args.rollouts,
+                                          args.explore))
 
     for out in ray.get(results):
         steps.extend(out[0])
@@ -261,7 +256,8 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Off Policy Deep Q-Learning')
 
     # Model parameters
-    parser.add_argument('--model', default='ddqn')
+    parser.add_argument('--model', default='dqn', 
+                        choices=['dqn', 'ddqn', 'ddpg', 'supervised', 'mcre', 'cmcre'])
     parser.add_argument('--data-dir', default='data100K')
     parser.add_argument('--buffer-size', default=100000, type=int)
     parser.add_argument('--checkpoint', default=None)
@@ -269,9 +265,9 @@ if __name__ == '__main__':
     parser.add_argument('--explore', default=0.0, type=float)
 
     # Hyperparameters
-    parser.add_argument('--seed', default=1234, type=int)
+    parser.add_argument('--seed', default=None, type=int)
     parser.add_argument('--channels', dest='out_channels', default=32, type=int)
-    parser.add_argument('--gamma', default=0.90, type=float)
+    parser.add_argument('--gamma', default=0.85, type=float)
     parser.add_argument('--decay', default=1e-5, type=float)
     parser.add_argument('--lr', dest='lrate', default=1e-3, type=float)
     parser.add_argument('--batch-size', default=128, type=int)

@@ -92,6 +92,9 @@ class BaseMemory(Dataset):
         # TODO: Find a more efficient way of doing this; memory map a file?
         if self.state is None:
 
+            if isinstance(action, list):
+                action = np.asarray(action)
+
             state_size = (state.shape[-3], state.shape[-2], state.shape[-1])
             action_size = (action.shape[0],)
 

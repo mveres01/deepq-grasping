@@ -10,7 +10,7 @@ from base.network import StateNetwork, BaseNetwork
 
 class Actor(nn.Module):
 
-    def __init__(self, out_channels, action_size):
+    def __init__(self, out_channels, action_size, **kwargs):
         super(Actor, self).__init__()
 
         self.state_net = StateNetwork(out_channels)
@@ -43,38 +43,31 @@ class DDPG:
         self.bounds = config['bounds']
 
         self.critic = BaseNetwork(**config).to(config['device'])
-
         self.critic_target = copy.deepcopy(self.critic)
         self.critic_target.eval()
 
-        self.model = Actor(config['out_channels'], 
-                           config['action_size']).to(config['device'])
-
+        self.model = Actor(**config).to(config['device'])
         self.model_target = copy.deepcopy(self.model)
         self.model_target.eval()
 
         self.aopt = torch.optim.Adam(self.model.parameters(),
                                      config['lrate'],
-                                     betas=(0.5, 0.99),
                                      weight_decay=config['decay'])
 
         self.copt = torch.optim.Adam(self.critic.parameters(),
                                      config['lrate'],
-                                     betas=(0.5, 0.99),
                                      weight_decay=config['decay'])
         
         # TODO: hacky interface for class, fix this 
         self.optimizer = self.aopt
 
     def get_weights(self):
-
         return (self.model.state_dict(),
                 self.critic.state_dict(),
                 self.model_target.state_dict(),
                 self.critic_target.state_dict())
 
     def set_weights(self, weights):
-
         self.model.load_state_dict(weights[0])
         self.critic.load_state_dict(weights[1])
         self.model_target.load_state_dict(weights[2])
@@ -151,8 +144,8 @@ class DDPG:
         self.copt.step()
         self.copt.zero_grad()
 
-        # Update the actor network by following the policy gradient
-        q_pred = -self.critic(s0, t0, self.model(s0, t0)).mean()#.clamp(-1, 1)
+        # Train the actor by following the policy gradient
+        q_pred = -self.critic(s0, t0, self.model(s0, t0)).mean()
 
         self.aopt.zero_grad()
         q_pred.backward()

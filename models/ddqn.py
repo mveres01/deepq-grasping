@@ -7,7 +7,7 @@ from base.network import BaseNetwork
 from base.optimizer import CEMOptimizer, UniformOptimizer
 
 
-class DQN:
+class DDQN:
 
     def __init__(self, config):
 
@@ -16,7 +16,6 @@ class DQN:
         self.bounds = config['bounds']
 
         self.model = BaseNetwork(**config).to(config['device'])
-
         self.target = copy.deepcopy(self.model)
         self.target.eval()
 
@@ -40,7 +39,7 @@ class DQN:
         """Loads a model from a directory containing a checkpoint."""
 
         if not os.path.exists(checkpoint_dir):
-            raise Exception('No checkpoint directory <%s>' % checkpoint_dir)
+            os.makedirs(checkpoint_dir)
 
         path = os.path.join(checkpoint_dir, 'model.pt')
         self.model.load_state_dict(torch.load(path, self.device))
@@ -61,20 +60,21 @@ class DQN:
 
         if np.random.random() < explore_prob:
             return np.random.uniform(*self.bounds, size=(self.action_size,))
-
         return self.cem(self.model, state, timestep)[0].detach()
 
     def train(self, memory, gamma, batch_size, **kwargs):
         """Performs a single step of Q-Learning."""
 
+        self.model.train()
+
         # Sample a minibatch from the memory buffer
-        s0, act, r, s1, term, timestep = memory.sample(batch_size)
+        s0, act, r, s1, done, timestep = memory.sample(batch_size)
 
         s0 = torch.from_numpy(s0).to(self.device)
         act = torch.from_numpy(act).to(self.device)
         r = torch.from_numpy(r).to(self.device)
         s1 = torch.from_numpy(s1).to(self.device)
-        term = torch.from_numpy(term).to(self.device)
+        done = torch.from_numpy(done).to(self.device)
         t0 = torch.from_numpy(timestep).to(self.device)
         t1 = torch.from_numpy(timestep + 1).to(self.device)
 
@@ -82,12 +82,13 @@ class DQN:
 
         with torch.no_grad():
 
-            # Expectation over all actions while in a state
-            _, qopt = self.uniform(self.target, s1, t1)
-            
-            target = r + (1. - term) * gamma * qopt
+            # DDQN works by finding the maximal action for the current policy
+            aopt, _ = self.uniform(self.model, s1, t1)
 
-        loss = torch.mean((pred - target) ** 2)
+            # but using the q-value from the target network
+            target = r + (1. - done) * gamma * self.target(s1, t1, aopt).view(-1)
+
+        loss = torch.mean((pred - target) ** 2)#.clamp(-1, 1)
 
         self.optimizer.zero_grad()
         loss.backward()
@@ -98,6 +99,4 @@ class DQN:
 
     def update(self):
         """Copy the network weights every few epochs."""
-
         self.target.load_state_dict(self.model.state_dict())
-        self.target.eval()

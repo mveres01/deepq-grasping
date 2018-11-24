@@ -1,29 +1,31 @@
 import os
 import time
-import numpy as np
-import torch
 import argparse
 from collections import deque
+import numpy as np
+import torch
 import pybullet_envs.bullet.kuka_diverse_object_gym_env as e
 
-from utils import ReplayBuffer, collect_experience
 
-
-class GymEnvironment(object):
+class GymEnvironment:
     """Wrapper to run an environment on a remote CPU."""
 
     def __init__(self, model_creator, env_creator, seed=None):
 
         if seed is None:
             seed = np.random.randint(1234567890)
+
         np.random.seed(seed)
         torch.manual_seed(seed)
 
-        self.model = model_creator()
+        self.policy = model_creator()
         self.env = env_creator()
-        self.reset()
 
     def step(self, action):
+        """Takes a step in the environment."""
+
+        if not isinstance(action, np.ndarray):
+            action = action.cpu().numpy().flatten()
         return self.env.step(action)
 
     def reset(self):
@@ -32,59 +34,211 @@ class GymEnvironment(object):
     def rollout(self, weights, num_episodes=5, explore_prob=0.):
         """Performs a full grasping episode in the environment."""
 
-        self.model.set_weights(weights)
+        self.policy.set_weights(weights)
 
-        steps, rewards = [], []
+        episodes = []
         for _ in range(num_episodes):
 
-            step, done = 0, False
-            state = self.reset()
+            state, step, done = self.reset(), 0., False
 
+            state = state.transpose(2, 0, 1)[np.newaxis]
+
+            cur_episode = []
             while not done:
 
-                state = state.transpose(2, 0, 1)[np.newaxis]
-                state = state.astype(np.float32) / 255.
+                # Note state is normalized to [0, 1]
+                s0 = state.astype(np.float32) / 255.
+                action = self.policy.sample_action(s0, step, explore_prob)
 
-                # Sample and perform and action in the sim
-                action = self.model.sample_action(state,
-                                                  float(step),
-                                                  explore_prob)
-                action = action.cpu().numpy().flatten()
+                next_state, reward, done, _ = self.step(action)
+                next_state = next_state.transpose(2, 0, 1)[np.newaxis]
 
-                state, reward, done, _ = self.env.step(action)
+                cur_episode.append((state, action, reward, next_state, done, step))
 
-                step = step + 1
+                state = next_state
+                step = step + 1.
 
-            steps.append(step - 1)
-            rewards.append(reward)
+            episodes.append(cur_episode)
 
-        return (steps, rewards)
+        return episodes
 
 
-def make_env(env_config):
+def make_env(max_steps, is_test, render):
     """Makes a new environment given a config file."""
+
+    # Defines parameters for distributed evaluation
+    env_config = {'actionRepeat':80,
+                  'isEnableSelfCollision':True,
+                  'renders':render,
+                  'isDiscrete':False,
+                  'maxSteps':max_steps,
+                  'dv':0.06,
+                  'removeHeightHack':True,
+                  'blockRandom':0.3,
+                  'cameraRandom':0,
+                  'width':64,
+                  'height':64,
+                  'numObjects':5,
+                  'isTest':is_test}
 
     def create():
         return e.KukaDiverseObjectEnv(**env_config)
     return create
 
 
-def make_model(Model, network_config):
+def make_model(args, device):
     """Makes a new model given a config file."""
 
+    # Defines parameters for network generator
+    config = {'action_size':4, 'bounds':(-1, 1), 'device':device}
+    config.update(vars(args))
+
+    if args.model == 'dqn':
+        from models.dqn import DQN as Model
+    elif args.model == 'ddqn':
+        from models.ddqn import DDQN as Model
+    elif args.model == 'ddpg':
+        from models.ddpg import DDPG as Model
+    elif args.model == 'supervised':
+        from models.supervised import Supervised as Model
+    elif args.model == 'mcre':
+        from models.mcre import MCRE as Model
+    elif args.model == 'cmcre':
+        from models.cmcre import CMCRE as Model
+    else:
+        raise NotImplementedError('Model <%s> not implemented' % args.model)
+
     def create():
-        return Model(network_config)
+        return Model(config)
     return create
 
 
-def test(weights, envs, num_episodes=1):
-    """Used for evaluating network performance.
+def make_memory(model, buffer_size):
+    """Initializes a memory structure.
 
-    This can be used in parallel with the training loop to collect data on
-    remote processes while the main process trains the network.
+    Some models require slight modifications to the replay buffer,
+    such as sampling a full episode, setting discounted rewards, or
+    altering the action. in these cases, the base.memory module gets
+    overridden in the respective files.
     """
 
-    return [env.rollout(weights, num_episodes) for env in envs]
+    if model == 'supervised':
+        from models.supervised import Memory
+    elif model == 'mcre':
+        from models.mcre import Memory
+    elif model == 'cmcre':
+        from models.cmcre import Memory
+    else:
+        from models.base.memory import BaseMemory as Memory
+
+    return Memory(buffer_size)
+
+
+def test(envs, weights, rollouts, explore):
+    """Helper function for running remote experiments."""
+    return [env.rollout(weights, rollouts, explore) for env in envs]
+
+
+def main(args):
+    """Main driver for evaluating different models.
+
+    Can be used in both training and testing mode.
+    """
+
+    if args.seed is None:
+        args.seed = np.random.randint(1234567890)
+
+    np.random.seed(args.seed)
+    torch.manual_seed(args.seed)
+
+    # Make the remote environments; the models aren't very large and can
+    # be run fairly quickly on the cpus. Save the GPUs for training
+    env_creator = make_env(args.max_steps, args.is_test, args.render)
+    model_creator = make_model(args, torch.device('cpu'))
+
+    envs = []
+    for _ in range(args.remotes):
+        envs.append(GymEnvironment(model_creator, env_creator, args.seed_env))
+
+    # We'll put the trainable model on the GPU if one's available
+    device = torch.device('cpu' if args.no_cuda and not
+                           torch.cuda.is_available() else 'cuda')
+    model = make_model(args, device)()
+
+    if args.checkpoint is not None:
+        model.load_checkpoint(args.checkpoint)
+
+    # Train
+    if not args.is_test:
+
+        checkpoint_dir = os.path.join('checkpoints', args.model)
+        if not os.path.exists(checkpoint_dir):
+            os.makedirs(checkpoint_dir)
+
+        # Some methods have specialized memory implementations
+        memory = make_memory(args.model, args.buffer_size)
+        memory.load(**vars(args))
+
+        # Keep a running average of 2 epochs-worth of rollouts
+        step_queue = deque(maxlen=2 * args.rollouts * args.remotes)
+        reward_queue = deque(maxlen=step_queue.maxlen)
+        loss_queue = deque(maxlen=step_queue.maxlen)
+
+        # Perform a validation step every full pass through the data
+        iters_per_epoch = args.buffer_size // args.batch_size
+
+        results = []
+        start = time.time()
+        for episode in range(args.max_epochs * iters_per_epoch):
+
+            loss = model.train(memory, **vars(args))
+            loss_queue.append(loss)
+
+            if episode % args.update_iter == 0:
+                model.update()
+
+            # Validation step;
+            # Here we take the weights from the current network, and distribute
+            # them to all remote instances. While the network trains for another
+            # epoch, these instances will run in parallel & evaluate the policy.
+            # If an epoch finishes before remote instances, training will be
+            # halted until outcomes are returned
+            if episode % (iters_per_epoch // 1) == 0:
+
+                cur_episode = '%d' % (episode // iters_per_epoch)
+                model.save_checkpoint(os.path.join(checkpoint_dir, cur_episode))
+
+                # Update weights of remote network & perform rollouts
+                results = test(envs, model.get_weights(), 
+                               args.rollouts, args.explore)
+                
+                # Collect results from the previous epoch
+                for device in results:
+                    for ep in device:
+                        # (s0, act, r, s1, terminal, timestep)
+                        step_queue.append(ep[-1][-1])
+                        reward_queue.append(ep[-1][2])
+
+                print('Epoch: %s, Step: %2.4f, Reward: %1.2f, Loss: %2.4f, '\
+                      'Took:%2.4fs' % (cur_episode, np.mean(step_queue),
+                      np.mean(reward_queue), np.mean(loss_queue), 
+                      time.time() - start))
+
+                start = time.time()
+
+    print('---------- Testing ----------')
+
+    results = test(envs, model.get_weights(), args.rollouts, args.explore)
+
+    steps, rewards = [], []
+    for device in results:
+        for ep in device:
+            # (s0, act, r, s1, terminal, timestep)
+            steps.append(ep[-1][-1])
+            rewards.append(ep[-1][2])
+
+    print('Average across (%d) episodes: Step: %2.4f, Reward: %1.2f' %
+          (args.rollouts * args.remotes, np.mean(steps), np.mean(rewards)))
 
 
 if __name__ == '__main__':
@@ -92,152 +246,40 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Off Policy Deep Q-Learning')
 
     # Model parameters
-    parser.add_argument('--model', default='dqn')
-    parser.add_argument('--on-policy', action='store_true', default=False)
-    parser.add_argument('--epochs', dest='max_episodes', default=20000, type=int)
-    parser.add_argument('--data-dir', default='data100K2')
+    parser.add_argument('--model', default='dqn',
+                                                choices=['dqn', 'ddqn', 'ddpg',
+                                                         'supervised', 'mcre',
+                                                         'cmcre'])
+    parser.add_argument('--data-dir', default='data100K')
     parser.add_argument('--buffer-size', default=100000, type=int)
     parser.add_argument('--checkpoint', default=None)
+    parser.add_argument('--epochs', dest='max_epochs', default=200, type=int)
+    parser.add_argument('--explore', default=0.0, type=float)
+    parser.add_argument('--no-cuda', action='store_true', default=False)
 
     # Hyperparameters
     parser.add_argument('--seed', default=1234, type=int)
-    parser.add_argument('--channels', dest='num_features', default=32, type=int)
-    parser.add_argument('--gamma', default=0.94, type=float)
+    parser.add_argument('--seed-env', default=None, type=int)
+    parser.add_argument('--channels', dest='out_channels', default=32, type=int)
+    parser.add_argument('--gamma', default=0.9, type=float)
     parser.add_argument('--decay', default=1e-5, type=float)
     parser.add_argument('--lr', dest='lrate', default=1e-3, type=float)
-    parser.add_argument('--batch-size', default=200, type=int)
+    parser.add_argument('--min-lr', default=1e-7, type=float)
+    parser.add_argument('--batch-size', default=128, type=int)
     parser.add_argument('--update', dest='update_iter', default=50, type=int)
-    parser.add_argument('--explore-prob', default=0., type=float)
     parser.add_argument('--uniform', dest='num_uniform', default=16, type=int)
     parser.add_argument('--cem', dest='num_cem', default=64, type=int)
-    parser.add_argument('--cem-iter', default=3, type=int)
+    parser.add_argument('--cem-iter', default=5, type=int)
     parser.add_argument('--cem-elite', default=6, type=int)
 
     # Environment Parameters
     parser.add_argument('--max-steps', default=15, type=int)
     parser.add_argument('--render', action='store_true', default=False)
-    parser.add_argument('--is-test', action='store_true', default=False)
-    parser.add_argument('--block-random', default=0.3, type=float)
-    parser.add_argument('--rollouts', default=4, type=int)
+    parser.add_argument('--test', dest='is_test', action='store_true',
+                        default=False)
+
+    # Distributed Parameters
+    parser.add_argument('--rollouts', default=8, type=int)
     parser.add_argument('--remotes', default=1, type=int)
 
-    args = parser.parse_args()
-
-    # ------------------------------------------------------------------------
-    np.random.seed(args.seed)
-    torch.manual_seed(args.seed) 
-
-    checkpoint_dir = os.path.join('checkpoints', args.model)
-    if not os.path.exists(checkpoint_dir):
-        os.makedirs(checkpoint_dir)
-
-    if args.model == 'dqn':
-        from dqn_test import DQN as Model
-    elif args.model == 'ddqn':
-        from ddqn import DDQN as Model
-    elif args.model == 'ddpg':
-        from ddpg import DDPG as Model
-    else:
-        raise NotImplementedError('Model <%s> not implemented' % args.model)
-
-    # Defines parameters for distributed evaluation
-    env_config = {'actionRepeat':80,
-                  'isEnableSelfCollision':True,
-                  'renders':args.render,
-                  'isDiscrete':False,
-                  'maxSteps':args.max_steps,
-                  'dv':0.06,
-                  'removeHeightHack':True,
-                  'blockRandom':args.block_random,
-                  'cameraRandom':0,
-                  'width':64,
-                  'height':64,
-                  'numObjects':5,
-                  'isTest':args.is_test}
-
-    # Defines parameters for network generator
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    net_config = {'out_channels':args.num_features,
-                  'action_size':3 if env_config['isDiscrete'] else 4,
-                  'num_uniform':args.num_uniform,
-                  'num_cem':args.num_cem,
-                  'cem_elite':args.cem_elite,
-                  'cem_iter':args.cem_iter,
-                  'device':device,
-                  'bounds':(-1, 1)}
-
-    model_config = {'seed':args.seed,
-                    'gamma':args.gamma,
-                    'decay':args.decay,
-                    'lrate':args.lrate}
-    net_config.update(model_config)
-
-
-    # Make the remote environments
-    model_creator = make_model(Model, net_config)
-    env_creator = make_env(env_config)
-
-    envs = []
-    for _ in range(args.remotes):
-        envs.append(GymEnvironment(model_creator, env_creator))
-
-    # Create a trainable model
-    model = make_model(Model, net_config)()
-       
-    if args.checkpoint is not None:
-        model.load_checkpoint(args.checkpoint)
-
-    if args.is_test:
-        steps, rewards = test(model.get_weights(), envs, args.rollouts)
-
-        print('Average across (%d) episodes: Step: %2.4f, Reward: %1.2f' %
-              (args.max_episodes, np.mean(steps), np.mean(rewards)))
-
-    else:
-
-        # Use a memory replay buffer for training
-        memory = ReplayBuffer(args.buffer_size,
-                              state_size=(3, 64, 64),
-                              action_size=(net_config['action_size'],))
-
-        if os.path.exists(args.data_dir):
-            memory.load(args.data_dir, args.buffer_size)
-        else:
-            collect_experience(env_creator(), memory, print_status_every=100)
-            memory.save(args.data_dir)
-
-        # Train the model & simultaneously test in the environment
-        iters_per_epoch = args.buffer_size // args.batch_size
-
-        step_queue = deque(maxlen=max(200, args.rollouts * args.remotes))
-        reward_queue = deque(maxlen=step_queue.maxlen)
-
-        results = []
-        start = time.time()
-        for episode in range(args.max_episodes):
-
-            model.train(memory, **vars(args))
-
-            if episode % args.update_iter == 0:
-                model.update()
-
-            # Validation step
-            if episode % iters_per_epoch == 0:
-
-                ep = '%d' % (episode // iters_per_epoch)
-                checkpoint = os.path.join(checkpoint_dir, ep)
-                model.save_checkpoint(checkpoint)
-
-                # This setup allows us to evaluate performance in parallel
-                # with training. Since we collect results from the previous
-                # validation step, we only need to wait to collect results,
-                # rather then the full execution
-                for res in test(model.get_weights(), envs, args.rollouts):
-                    step_queue.extend(res[0])
-                    reward_queue.extend(res[1])
-
-                print('Epoch: %s, Episode: %d, Step: %2.4f, Reward: %1.2f, Took: %2.4f' %
-                      (ep, episode, np.mean(step_queue), np.mean(reward_queue),
-                       time.time() - start))
-
-                start = time.time()
+    main(parser.parse_args())

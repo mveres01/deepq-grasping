@@ -5,7 +5,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from base.network import StateNetwork, BaseNetwork
+from .base.network import StateNetwork, BaseNetwork
 
 
 class Actor(nn.Module):

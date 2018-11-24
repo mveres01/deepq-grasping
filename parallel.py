@@ -51,6 +51,7 @@ class GymEnvironment:
             cur_episode = []
             while not done:
 
+                # Note state is normalized to [0, 1]
                 s0 = state.astype(np.float32) / 255.
                 action = self.policy.sample_action(s0, step, explore_prob)
 
@@ -183,8 +184,8 @@ def main(args):
         memory = make_memory(args.model, args.buffer_size)
         memory.load(**vars(args))
 
-        # Keep a running average of 2 epochs-worth of rollouts
-        step_queue = deque(maxlen=2 * args.rollouts * args.remotes)
+        # Keep a running average of n-epochs worth of rollouts
+        step_queue = deque(maxlen=1 * args.rollouts * args.remotes)
         reward_queue = deque(maxlen=step_queue.maxlen)
         loss_queue = deque(maxlen=step_queue.maxlen)
 
@@ -207,7 +208,7 @@ def main(args):
             # epoch, these instances will run in parallel & evaluate the policy.
             # If an epoch finishes before remote instances, training will be
             # halted until outcomes are returned
-            if episode % (iters_per_epoch // 1) == 0:
+            if episode % (iters_per_epoch // 2) == 0:
 
                 cur_episode = '%d' % (episode // iters_per_epoch)
                 model.save_checkpoint(os.path.join(checkpoint_dir, cur_episode))
@@ -231,7 +232,6 @@ def main(args):
                 start = time.time()
 
     print('---------- Testing ----------')
-
     results = test(envs, model.get_weights(), args.rollouts, args.explore)
 
     steps, rewards = [], []
@@ -264,14 +264,13 @@ if __name__ == '__main__':
     parser.add_argument('--seed-env', default=None, type=int)
     parser.add_argument('--channels', dest='out_channels', default=32, type=int)
     parser.add_argument('--gamma', default=0.9, type=float)
-    parser.add_argument('--decay', default=1e-4, type=float)
-    parser.add_argument('--lr', dest='lrate', default=1e-3, type=float)
-    parser.add_argument('--min-lr', default=1e-7, type=float)
+    parser.add_argument('--decay', default=1e-5, type=float)
+    parser.add_argument('--lr', dest='lrate', default=5e-4, type=float)
     parser.add_argument('--batch-size', default=128, type=int)
     parser.add_argument('--update', dest='update_iter', default=50, type=int)
-    parser.add_argument('--uniform', dest='num_uniform', default=16, type=int)
+    parser.add_argument('--uniform', dest='num_uniform', default=64, type=int)
     parser.add_argument('--cem', dest='num_cem', default=64, type=int)
-    parser.add_argument('--cem-iter', default=5, type=int)
+    parser.add_argument('--cem-iter', default=3, type=int)
     parser.add_argument('--cem-elite', default=6, type=int)
 
     # Environment Parameters

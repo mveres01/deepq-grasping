@@ -4,61 +4,6 @@ from gym import spaces
 from torch.utils.data import Dataset
 
 
-class ContinuousDownwardBiasPolicy(object):
-    """Policy which takes continuous actions, and is biased to move down.
-
-    Taken from:
-    https://github.com/bulletphysics/bullet3/blob/master/examples/pybullet/gym/pybullet_envs/baselines/enjoy_kuka_diverse_object_grasping.py
-    """
-
-    def __init__(self, height_hack_prob=0.9):
-        """Initializes the DownwardBiasPolicy.
-
-        Args:
-            height_hack_prob: The probability of moving down at every move.
-        """
-        self._height_hack_prob = height_hack_prob
-        self._action_space = spaces.Box(low=-1, high=1, shape=(4,))
-
-    def sample_action(self, obs, explore_prob):
-        """Implements height hack and grasping threshold hack.
-        """
-        dx, dy, dz, da = self._action_space.sample()
-        if np.random.random() < self._height_hack_prob:
-            dz = -1
-        return [dx, dy, dz, da]
-
-
-def collect_experience(env, memory, print_status_every=25):
-
-    # Initialize the experience replay buffer with memory
-    policy = ContinuousDownwardBiasPolicy()
-
-    total_step = 0
-    while not memory.is_full:
-
-        terminal = False
-        state = env.reset()
-        state = state.transpose(2, 0, 1)[np.newaxis]
-
-        step = 0
-        while not terminal and not memory.is_full:
-
-            action = policy.sample_action(state, .1)
-
-            next_state, reward, terminal, _ = env.step(action)
-            next_state = next_state.transpose(2, 0, 1)[np.newaxis]
-
-            memory.add(state, action, reward, next_state, terminal, step)
-            state = next_state
-
-            step = step + 1
-            total_step = total_step + 1
-
-            if total_step % print_status_every == 0:
-                print('Memory capacity: %d/%d' % (memory.cur_idx, memory.buffer_size))
-
-
 class BaseMemory(Dataset):
 
     def __init__(self, buffer_size, **kwargs):

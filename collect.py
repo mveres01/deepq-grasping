@@ -1,25 +1,18 @@
-import os
-import time
+import argparse
 import numpy as np
-from gym import spaces
-import torch
-from torch.utils.data import Dataset
-import pybullet_envs.bullet.kuka_diverse_object_gym_env as e
-
-from parallel import GymEnvironment
-from models.base.memory import BaseMemory
-
-
 import ray
+from gym import spaces
+from parallel import GymEnvironment, make_env
+from models.base.memory import BaseMemory
 
 
 class ContinuousDownwardBiasPolicy:
     """Policy which takes continuous actions, and is biased to move down.
 
-    TODO: Fix gross requirements of get/set/load/save functions?
-
     Taken from:
     https://github.com/bulletphysics/bullet3/blob/master/examples/pybullet/gym/pybullet_envs/baselines/enjoy_kuka_diverse_object_grasping.py
+
+    TODO: Fix requirements of get/set/load/save functions?
     """
 
     def __init__(self, height_hack_prob=0.9):
@@ -47,53 +40,28 @@ class ContinuousDownwardBiasPolicy:
         """Implements height hack and grasping threshold hack.
         """
 
+        del obs  # unused
         del step  # unused
+        del explore_prob  # unused
+
         dx, dy, dz, da = self._action_space.sample()
         if np.random.random() < self._height_hack_prob:
             dz = -1
         return np.asarray([dx, dy, dz, da])
 
 
-def make_env(env_config):
-    """Makes a new environment given a config file."""
-
-    def create():
-        return e.KukaDiverseObjectEnv(**env_config)
-    return create
-
-
-def collect_experience(merge_every=25):
-
-    SEED = None
-    NUM_REMOTES = 2
-    STATE_SIZE = (3, 64, 64)
-    ACTION_SIZE = 4
-    BUFFER_SIZE = 200_000
+def collect_experience(max_steps, is_test, num_remotes, buffer_size,
+                       seed, merge_every, outdir):
 
     # Defines parameters for distributed evaluation
-    env_config = {'actionRepeat':80,
-                  'isEnableSelfCollision':True,
-                  'renders':False,
-                  'isDiscrete':False,
-                  'maxSteps':15,
-                  'dv':0.06,
-                  'removeHeightHack':True,
-                  'blockRandom':0.3,
-                  'cameraRandom':0,
-                  'width':64,
-                  'height':64,
-                  'numObjects':5,
-                  'isTest':False}
-
-    env_creator = make_env(env_config)
+    env_creator = make_env(max_steps, is_test, render=False)
 
     envs = []
-    for _ in range(NUM_REMOTES):
+    for _ in range(num_remotes):
         envs.append(GymEnvironment.remote(ContinuousDownwardBiasPolicy,
-                                          env_creator, seed=SEED))
+                                          env_creator, seed=seed))
 
-
-    memory = BaseMemory(BUFFER_SIZE)
+    memory = BaseMemory(buffer_size)
 
     while not memory.is_full:
 
@@ -110,9 +78,20 @@ def collect_experience(merge_every=25):
 
         print('Memory capacity: %d/%d' % (memory.cur_idx, memory.buffer_size))
 
-    memory.save('data200K')
+    memory.save(outdir)
 
 
 if __name__ == '__main__':
 
-    collect_experience(merge_every=5)
+    parser = argparse.ArgumentParser(description='Initialize memory')
+    parser.add_argument('--max-steps', default=15, type=int)
+    parser.add_argument('--is-test', action='store_true', default=False)
+    parser.add_argument('--buffer-size', default=100000, type=int)
+    parser.add_argument('--seed', default=None, type=int)
+    parser.add_argument('--remotes', dest='num_remotes', default=1, type=int)
+    parser.add_argument('--merge-every', default=5, type=int,
+                        help='Gather rollouts every K episodes')
+    parser.add_argument('--outdir', default='data', type=str)
+
+    args = parser.parse_args()
+    collect_experience(**vars(args))

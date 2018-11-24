@@ -3,8 +3,8 @@ import copy
 import numpy as np
 import torch
 
-from base.network import BaseNetwork
-from base.optimizer import CEMOptimizer, UniformOptimizer
+from .base.network import BaseNetwork
+from .base.optimizer import CEMOptimizer, UniformOptimizer
 
 
 class DQN:
@@ -78,7 +78,8 @@ class DQN:
 
         with torch.no_grad():
 
-            # Expectation over all actions while in a state
+            # Expectation uses the target network and evaluates
+            # actions sampled uniformly within space
             _, qopt = self.uniform(self.target, s1, t1)
 
             target = r + (1. - term) * gamma * qopt

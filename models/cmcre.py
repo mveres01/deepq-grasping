@@ -45,6 +45,7 @@ class CMCRE:
 
         self.optimizer = torch.optim.Adam(self.model.parameters(),
                                           config['lrate'],
+                                          eps=1e-3,
                                           weight_decay=config['decay'])
 
     def get_weights(self):
@@ -134,44 +135,6 @@ class CMCRE:
         self.optimizer.step()
 
         return loss.item()
-
-    """
-    def train(self, memory, gamma, batch_size, **kwargs):
-
-        # Sample data from the memory buffer & put on GPU
-        #s0, act, r, _, _, timestep = memory.sample(batch_size // 8)
-        s0, act, r, _, _, timestep = memory.sample(1)
-
-        s0 = torch.from_numpy(s0).to(self.device)
-        act = torch.from_numpy(act).to(self.device)
-        r = torch.from_numpy(r).to(self.device)
-        t0 = torch.from_numpy(timestep).to(self.device)
-
-        pred = self.model(s0, t0, act).view(-1)
-
-    
-        _, Q = self.uniform(self.model, s0, t0)
-      
-        # As we sample a full episode, we can just take the difference 
-        # between consecutive value predictions as the advantage
-        adv = r.clone() - Q  # set the last element
-        adv[:-1] = r[:-1] + gamma * Q[1:] - Q[:-1]
-
-        out = torch.zeros_like(r)
-        for i in reversed(range(s0.shape[0] - 1)):
-            out[i] = gamma * (out[i+1] + (r[i+1] - adv[i+1]))
-        
-        out = (out + r).detach()
-
-        loss = torch.mean((pred - out) ** 2)
-
-        self.optimizer.zero_grad()
-        loss.backward()
-        torch.nn.utils.clip_grad_norm_(self.model.parameters(), 10.)
-        self.optimizer.step()
-
-        return loss.item()
-    """
 
     def update(self):
         pass

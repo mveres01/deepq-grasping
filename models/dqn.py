@@ -24,6 +24,7 @@ class DQN:
 
         self.optimizer = torch.optim.Adam(self.model.parameters(),
                                           config['lrate'],
+                                          eps=1e-3,
                                           weight_decay=config['decay'])
 
     def get_weights(self):
@@ -63,6 +64,8 @@ class DQN:
     def train(self, memory, gamma, batch_size, **kwargs):
         """Performs a single step of Q-Learning."""
 
+        self.model.train()
+
         # Sample a minibatch from the memory buffer
         s0, act, r, s1, term, timestep = memory.sample(batch_size)
 
@@ -91,7 +94,7 @@ class DQN:
         torch.nn.utils.clip_grad_norm_(self.model.parameters(), 10.)
         self.optimizer.step()
 
-        return loss.detach()
+        return loss.item()
 
     def update(self):
         """Copy the network weights every few epochs."""

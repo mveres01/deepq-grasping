@@ -69,6 +69,7 @@ class MCRE:
 
         self.optimizer = torch.optim.Adam(self.model.parameters(),
                                           config['lrate'],
+                                          eps=1e-3,
                                           weight_decay=config['decay'])
 
     def get_weights(self):

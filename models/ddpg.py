@@ -52,10 +52,12 @@ class DDPG:
 
         self.aopt = torch.optim.Adam(self.model.parameters(),
                                      config['lrate'],
+                                     eps=1e-3,
                                      weight_decay=config['decay'])
 
         self.copt = torch.optim.Adam(self.critic.parameters(),
                                      config['lrate'],
+                                     eps=1e-3,
                                      weight_decay=config['decay'])
         
         # TODO: hacky interface for class, fix this 
@@ -145,14 +147,25 @@ class DDPG:
         self.copt.zero_grad()
 
         # Train the actor by following the policy gradient
-        q_pred = -self.critic(s0, t0, self.model(s0, t0)).mean()
+        action = self.model(s0, t0)
+        q_pred = -self.critic(s0, t0, action).mean()
 
+        '''
         self.aopt.zero_grad()
         q_pred.backward()
         torch.nn.utils.clip_grad_norm_(self.model.parameters(), 10.)
         self.aopt.step()
         self.aopt.zero_grad()
         self.copt.zero_grad()
+        '''
+
+        self.aopt.zero_grad()
+        
+        q_grad = torch.autograd.grad(q_pred, action)[0]
+
+        action.backward(gradient=q_grad)
+        torch.nn.utils.clip_grad_norm_(self.model.parameters(), 10.)
+        self.aopt.step()
 
         return loss.item()
 

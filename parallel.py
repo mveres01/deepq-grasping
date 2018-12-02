@@ -7,6 +7,8 @@ import torch
 import pybullet_envs.bullet.kuka_diverse_object_gym_env as e
 
 import ray
+#ray.init(redis_address="131.104.27.195:6379")
+#ray.init(redis_address="192.168.1.106:6379")
 ray.init()
 time.sleep(1)
 
@@ -208,7 +210,7 @@ def main(args):
             # epoch, these instances will run in parallel & evaluate the policy.
             # If an epoch finishes before remote instances, training will be
             # halted until outcomes are returned
-            if episode % (iters_per_epoch // 2) == 0:
+            if episode % (iters_per_epoch // 1) == 0:
 
                 cur_episode = '%d' % (episode // iters_per_epoch)
                 model.save_checkpoint(os.path.join(checkpoint_dir, cur_episode))

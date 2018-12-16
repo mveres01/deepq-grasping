@@ -1,3 +1,4 @@
+import time
 import argparse
 import numpy as np
 import ray
@@ -40,46 +41,10 @@ class ContinuousDownwardBiasPolicy:
     def sample_action(self, obs, step, explore_prob):
         """Implements height hack and grasping threshold hack.
         """
-
-        del obs  # unused
-        del step  # unused
-        del explore_prob  # unused
-
         dx, dy, dz, da = self._action_space.sample()
         if np.random.random() < self._height_hack_prob:
             dz = -1
         return np.asarray([dx, dy, dz, da])
-
-
-def collect_experience(max_steps, is_test, num_remotes, buffer_size,
-                       seed, merge_every, outdir):
-
-    # Defines parameters for distributed evaluation
-    env_creator = make_env(max_steps, is_test, render=False)
-
-    envs = []
-    for _ in range(num_remotes):
-        envs.append(EnvWrapper.remote(ContinuousDownwardBiasPolicy,
-                                          env_creator, seed=seed))
-
-    memory = BaseMemory(buffer_size)
-
-    while not memory.is_full:
-
-        rollouts = [env.rollout.remote(merge_every) for env in envs]
-
-        for cpu in ray.get(rollouts):
-            for batch in cpu:
-                for step in batch:
-                    if memory.is_full:
-                        break
-
-                    # batch = (s0, act, r, s1, done, steps)
-                    memory.add(*step)
-
-        print('Memory capacity: %d/%d' % (memory.cur_idx, memory.buffer_size))
-
-    memory.save(outdir)
 
 
 if __name__ == '__main__':
@@ -95,4 +60,33 @@ if __name__ == '__main__':
     parser.add_argument('--outdir', default='data', type=str)
 
     args = parser.parse_args()
-    collect_experience(**vars(args))
+
+    ray.init(num_cpus=args.num_remotes)
+    time.sleep(1)
+
+    # Defines parameters for distributed evaluation
+    env_creator = make_env(args.max_steps, args.is_test, render=False)
+
+    envs = []
+    for _ in range(args.num_remotes):
+        envs.append(EnvWrapper.remote(env_creator, 
+                                      ContinuousDownwardBiasPolicy,
+                                      seed=args.seed))
+
+    memory = BaseMemory(args.buffer_size)
+
+    while not memory.is_full:
+
+        rollouts = [env.rollout.remote(args.merge_every) for env in envs]
+
+        for cpu in ray.get(rollouts):
+            for batch in cpu:
+                for step in batch:
+                    if memory.is_full:
+                        break
+
+                    memory.add(*step)  #(s0, act, r, s1, done, steps)
+
+        print('Memory capacity: %d/%d' % (memory.cur_idx, memory.buffer_size))
+
+    memory.save(args.outdir)

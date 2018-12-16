@@ -2,7 +2,8 @@ import argparse
 import numpy as np
 import ray
 from gym import spaces
-from parallel import GymEnvironment, make_env
+from main import EnvWrapper
+from factory import make_env
 from models.base.memory import BaseMemory
 
 
@@ -58,7 +59,7 @@ def collect_experience(max_steps, is_test, num_remotes, buffer_size,
 
     envs = []
     for _ in range(num_remotes):
-        envs.append(GymEnvironment.remote(ContinuousDownwardBiasPolicy,
+        envs.append(EnvWrapper.remote(ContinuousDownwardBiasPolicy,
                                           env_creator, seed=seed))
 
     memory = BaseMemory(buffer_size)

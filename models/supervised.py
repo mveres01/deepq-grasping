@@ -140,10 +140,10 @@ class Supervised:
                                           weight_decay=config['decay'])
 
     def get_weights(self):
-        return self.model.state_dict()
+        return (self.model.state_dict(),)  # as tuple
 
     def set_weights(self, weights):
-        self.model.load_state_dict(weights)
+        self.model.load_state_dict(weights[0])
 
     def load_checkpoint(self, checkpoint_dir):
         """Loads a model from a directory containing a checkpoint."""

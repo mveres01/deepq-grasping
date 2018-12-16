@@ -85,7 +85,7 @@ class BaseNetwork(nn.Module):
         self.state_net = StateNetwork(out_channels)
         self.action_net = ActionNetwork(action_size, out_channels + 1)
         self.qnet = StateActionNetwork(out_channels)
-
+        
         for param in self.parameters():
             if len(param.shape) > 1:
                 nn.init.xavier_normal_(param)

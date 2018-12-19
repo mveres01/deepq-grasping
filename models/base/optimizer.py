@@ -41,12 +41,12 @@ class CEMOptimizer:
 
         # We repeat the hidden state representation of the input (rather
         # then the raw input itself) to save some memory
-        state = network.state_net(image, timestep)
+        hstate = network.state_net(image, timestep)
 
         # (B, N, R, C) -> repeat (B, Cem, N, R, C) -> (B * Cem, N, R, C)
-        state = state.unsqueeze(1) \
-                     .repeat(1, self.pop_size, 1, 1, 1) \
-                     .view(-1, *state.size()[1:])
+        hstate = hstate.unsqueeze(1) \
+                       .repeat(1, self.pop_size, 1, 1, 1) \
+                       .view(-1, *hstate.size()[1:])
 
         mu = torch.zeros(image.size(0), 1, self.action_size, device=self.device)
         std = torch.ones_like(mu) * 0.5
@@ -60,7 +60,9 @@ class CEMOptimizer:
             action = action.view(-1, self.action_size)
 
             # Evaluate the actions using a forward pass through the network
-            q = network.optim_forward(state, action).view(-1, self.pop_size)
+            with torch.no_grad():
+                q = network.qnet(hstate, network.action_net(action))
+                q = q.view(-1, self.pop_size)
 
             # Find the top actions and use them to update the sampling dist
             topq, topk = torch.topk(q, self.elite, dim=1)
@@ -108,21 +110,23 @@ class UniformOptimizer:
 
         # We repeat the hidden state representation of the input (rather
         # then the raw input itself) to save some memory
-        state = network.state_net(image, timestep)
+        hstate = network.state_net(image, timestep)
 
         # (B, N, R, C) -> repeat (B, Unif, N, R, C) -> (B * Unif, N, R, C)
-        state = state.unsqueeze(1)\
-                     .repeat(1, self.pop_size, 1, 1, 1)\
-                     .view(-1, *state.size()[1:])
+        hstate = hstate.unsqueeze(1)\
+                       .repeat(1, self.pop_size, 1, 1, 1)\
+                       .view(-1, *hstate.size()[1:])
 
         # Sample actions uniformly
-        actions = torch.zeros((state.size(0), self.action_size),
+        actions = torch.zeros((hstate.size(0), self.action_size),
                               device=self.device).uniform_(*self.bounds)
 
-        q = network.optim_forward(state, actions)
+        with torch.no_grad():
+            q = network.qnet(hstate, network.action_net(actions))
+            q = q.view(-1, self.pop_size)
 
         # Reshape to (Batch, Uniform) to find max action along dim=1
-        topq, top1 = q.view(-1, self.pop_size).max(1)
+        topq, top1 = q.max(1)
 
         # Need to reshape the vectors to index the proper actions
         top1 = top1.view(-1, 1, 1).expand(-1, 1, self.action_size)

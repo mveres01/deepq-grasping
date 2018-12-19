@@ -97,8 +97,3 @@ class BaseNetwork(nn.Module):
         hidden_action = self.action_net(action)
 
         return self.qnet(hidden_state, hidden_action)
-
-    @torch.no_grad()
-    def optim_forward(self, hidden_state, action):
-        """Passed to an optimizer to calculate optimal action"""
-        return self.qnet(hidden_state, self.action_net(action))

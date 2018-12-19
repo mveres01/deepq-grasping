@@ -59,8 +59,7 @@ class EnvWrapper:
                 next_state, reward, done, _ = self.step(action)
 
                 next_state = next_state.transpose(2, 0, 1)[np.newaxis]
-                cur_episode.append((state, action, reward, next_state, done,
-                                    step))
+                cur_episode.append((state, action, reward, next_state, done, step))
 
                 state = next_state
                 step = step + 1.
@@ -143,6 +142,8 @@ def main(args):
             # If an epoch finishes before remote instances, training will be
             # halted until outcomes are returned
             if episode % iters_per_epoch == 0:
+            
+                print('Waiting (Took: %2.4fs)'%(time.time() - start))
 
                 cur_episode = '%d' % (episode // iters_per_epoch)
                 model.save_checkpoint(os.path.join(checkpoint_dir, cur_episode))
@@ -221,6 +222,6 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     #ray.init(redis_address="127.0.0.1:6379")
-    ray.init(num_cpus=args.remotes)
+    ray.init(num_gpus=1, num_cpus=args.remotes)
     time.sleep(1)
     main(parser.parse_args())

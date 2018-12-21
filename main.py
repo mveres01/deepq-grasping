@@ -3,8 +3,8 @@ import time
 import argparse
 from collections import deque
 import numpy as np
-import torch
 import ray
+import torch
 from factory import make_env, make_model, make_memory
 
 
@@ -71,6 +71,8 @@ class EnvWrapper:
 
 def test(envs, weights, rollouts, explore):
     """Helper function for evaluating current policy in environments."""
+
+    start = time.time()
     for w in weights:
         for k, v in w.items():
             w[k] = v.cpu()
@@ -134,7 +136,7 @@ def main(args):
 
             if episode % args.update_iter == 0:
                 model.update()
-
+            
             # Validation step;
             # Here we take the weights from the current network, and distribute
             # them to all remote instances. While the network trains for another
@@ -143,8 +145,6 @@ def main(args):
             # halted until outcomes are returned
             if episode % iters_per_epoch == 0:
             
-                print('Waiting (Took: %2.4fs)'%(time.time() - start))
-
                 cur_episode = '%d' % (episode // iters_per_epoch)
                 model.save_checkpoint(os.path.join(checkpoint_dir, cur_episode))
 
@@ -222,6 +222,5 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     #ray.init(redis_address="127.0.0.1:6379")
-    ray.init(num_gpus=1, num_cpus=args.remotes)
-    time.sleep(1)
-    main(parser.parse_args())
+    ray.init(num_cpus=args.remotes)
+    main(args)

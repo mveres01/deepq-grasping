@@ -40,8 +40,8 @@ class CMCRE:
         self.device = config['device']
         self.bounds = config['bounds']
 
-        self.cem = CEMOptimizer(**config)
-        self.uniform = UniformOptimizer(**config)
+        self.action_select_eval = CEMOptimizer(**config)
+        self.action_select_train = UniformOptimizer(**config)
 
         self.optimizer = torch.optim.Adam(self.model.parameters(),
                                           config['lrate'],
@@ -49,10 +49,10 @@ class CMCRE:
                                           weight_decay=config['decay'])
 
     def get_weights(self):
-        return self.model.state_dict()
+        return (self.model.state_dict(),)
 
     def set_weights(self, weights):
-        self.model.load_state_dict(weights)
+        self.model.load_state_dict(weights[0])
 
     def load_checkpoint(self, checkpoint_dir):
         """Loads a model from a directory containing a checkpoint."""
@@ -79,16 +79,16 @@ class CMCRE:
         if np.random.random() < explore_prob:
             return np.random.uniform(*self.bounds, size=(self.action_size,))
 
-        return self.cem(self.model, state, timestep)[0].detach()
+        return self.action_select_eval(self.model, state, timestep)[0].detach()
 
     def _loss(self, Q, pred, r, gamma):
         """Calculates corrected loss over a single episode.
 
-        Assumes that all inputs (Q, pred, r) belong to a single episode 
+        Assumes that all inputs (Q, pred, r) belong to a single episode
         only. These are obtained by slicing the input at each timestep == 0.
         """
 
-        # As we sample a full episode, we can just take the difference 
+        # As we sample a full episode, we can just take the difference
         # between consecutive value predictions as the advantage
         adv = r.clone() - Q  # set the last element
         adv[:-1] = r[:-1] + gamma * Q[1:] - Q[:-1]
@@ -96,7 +96,7 @@ class CMCRE:
         out = torch.zeros_like(r)
         for i in reversed(range(r.shape[0] - 1)):
             out[i] = gamma * (out[i+1] + (r[i+1] - adv[i+1]))
-        
+
         out = (out + r).detach()
 
         # Later normalize over batch size
@@ -108,7 +108,7 @@ class CMCRE:
 
         # Sample full episodes from memory
         s0, act, r, _, _, timestep = memory.sample(batch_size // 8)
-    
+
         # Used to help compute proper loss per episode
         starts = np.hstack((np.where(timestep == 0)[0], r.shape[0]))
 
@@ -118,10 +118,10 @@ class CMCRE:
         t0 = torch.from_numpy(timestep).to(self.device)
 
         pred = self.model(s0, t0, act).view(-1)
-   
+
         # Calculate V* = \max_a Q(s_t, a)
-        _, Q = self.uniform(self.model, s0, t0)
-   
+        _, Q = self.action_select_train(self.model, s0, t0)
+
         # Sum the loss for each of the episodes
         loss = 0
         for s, e in zip(starts[:-1], starts[1:]):

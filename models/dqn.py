@@ -19,8 +19,8 @@ class DQN:
         self.target = copy.deepcopy(self.model)
         self.target.eval()
 
-        self.cem = CEMOptimizer(**config)
-        self.uniform = UniformOptimizer(**config)
+        self.action_select_eval = CEMOptimizer(**config)
+        self.action_select_train = UniformOptimizer(**config)
 
         self.optimizer = torch.optim.Adam(self.model.parameters(),
                                           config['lrate'],
@@ -59,7 +59,7 @@ class DQN:
 
         if np.random.random() < explore_prob:
             return np.random.uniform(*self.bounds, size=(self.action_size,))
-        return self.cem(self.model, state, timestep)[0].detach()
+        return self.action_select_eval(self.model, state, timestep)[0].detach()
 
     def train(self, memory, gamma, batch_size, **kwargs):
         """Performs a single step of Q-Learning."""
@@ -83,7 +83,7 @@ class DQN:
 
             # Expectation uses the target network and evaluates
             # actions sampled uniformly within space
-            _, qopt = self.uniform(self.target, s1, t1)
+            _, qopt = self.action_select_train(self.target, s1, t1)
 
             target = r + (1. - term) * gamma * qopt
 

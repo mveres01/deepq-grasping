@@ -132,7 +132,7 @@ class Supervised:
 
         # Note this uses a slightly different variant of the CEM optimizer
         # that restricts sampled z-values to favour datasets z-distribution
-        self.cem = SupervisedCEMOptimizer(**config)
+        self.action_select_eval = SupervisedCEMOptimizer(**config)
 
         self.optimizer = torch.optim.Adam(self.model.parameters(),
                                           config['lrate'],
@@ -169,7 +169,7 @@ class Supervised:
 
         if np.random.random() < explore_prob:
             return np.random.uniform(*self.bounds, size=(self.action_size,))
-        return self.cem(self.model, state, timestep)[0].detach()
+        return self.action_select_eval(self.model, state, timestep)[0].detach()
 
     def train(self, memory, batch_size, **kwargs):
         """Performs a single training step."""

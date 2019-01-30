@@ -46,11 +46,11 @@ class DDPG:
         self.critic_target = copy.deepcopy(self.critic)
         self.critic_target.eval()
 
-        self.model = Actor(**config).to(config['device'])
-        self.model_target = copy.deepcopy(self.model)
-        self.model_target.eval()
+        self.actor = Actor(**config).to(config['device'])
+        self.actor_target = copy.deepcopy(self.actor)
+        self.actor_target.eval()
 
-        self.aopt = torch.optim.Adam(self.model.parameters(),
+        self.aopt = torch.optim.Adam(self.actor.parameters(),
                                      config['lrate'],
                                      eps=1e-3,
                                      weight_decay=config['decay'])
@@ -59,63 +59,63 @@ class DDPG:
                                      config['lrate'],
                                      eps=1e-3,
                                      weight_decay=config['decay'])
-        
-        # TODO: hacky interface for class, fix this 
-        self.optimizer = self.aopt
 
     def get_weights(self):
-        return (self.model.state_dict(),
+        return (self.actor.state_dict(),
                 self.critic.state_dict(),
-                self.model_target.state_dict(),
+                self.actor_target.state_dict(),
                 self.critic_target.state_dict())
 
     def set_weights(self, weights):
-        self.model.load_state_dict(weights[0])
+        self.actor.load_state_dict(weights[0])
         self.critic.load_state_dict(weights[1])
-        self.model_target.load_state_dict(weights[2])
+        self.actor_target.load_state_dict(weights[2])
         self.critic_target.load_state_dict(weights[3])
 
     def load_checkpoint(self, checkpoint_dir):
+        """Loads a model from a directory containing a checkpoint."""
 
         if not os.path.exists(checkpoint_dir):
             raise Exception('No checkpoint directory <%s>' % checkpoint_dir)
 
         path = os.path.join(checkpoint_dir, 'actor.pt')
-        self.model.load_state_dict(torch.load(path, self.device))
+        self.actor.load_state_dict(torch.load(path, self.device))
 
         path = os.path.join(checkpoint_dir, 'critic.pt')
         self.critic.load_state_dict(torch.load(path, self.device))
         self.update()
 
     def save_checkpoint(self, checkpoint_dir):
+        """Saves a model to a directory containing a single checkpoint."""
 
         if not os.path.exists(checkpoint_dir):
             os.makedirs(checkpoint_dir)
 
         path = os.path.join(checkpoint_dir, 'actor.pt')
-        torch.save(self.model.state_dict(), path)
+        torch.save(self.actor.state_dict(), path)
 
         path = os.path.join(checkpoint_dir, 'critic.pt')
         torch.save(self.critic.state_dict(), path)
 
     @torch.no_grad()
     def sample_action(self, state, timestep, explore_prob):
+        """Samples an action to perform in the environment."""
 
         if np.random.random() < explore_prob:
             return np.random.uniform(-1, 1, self.action_size)
 
-        self.model.eval()
+        self.actor.eval()
 
         if isinstance(state, np.ndarray):
             state = torch.from_numpy(state).to(self.device)
         if isinstance(timestep, float):
             timestep = torch.tensor([timestep], device=self.device)
 
-        return self.model(state, timestep).detach()
+        return self.actor(state, timestep).detach()
 
     def train(self, memory, gamma, batch_size, **kwargs):
 
-        self.model.train()
+        self.actor.train()
 
         s0, act, r, s1, term, timestep = memory.sample(batch_size)
 
@@ -133,7 +133,7 @@ class DDPG:
 
         with torch.no_grad():
 
-            at = self.model_target(s1, t1)
+            at = self.actor_target(s1, t1)
             qt = self.critic_target(s1, t1, at).view(-1)
             target = r + (1. - term) * gamma * qt
 
@@ -147,37 +147,19 @@ class DDPG:
         self.copt.zero_grad()
 
         # Train the actor by following the policy gradient
-        action = self.model(s0, t0)
+        self.aopt.zero_grad()
+
+        action = self.actor(s0, t0)
         q_pred = -self.critic(s0, t0, action).mean()
 
-        '''
-        self.aopt.zero_grad()
-        q_pred.backward()
-        torch.nn.utils.clip_grad_norm_(self.model.parameters(), 10.)
-        self.aopt.step()
-        self.aopt.zero_grad()
-        self.copt.zero_grad()
-        '''
-
-        self.aopt.zero_grad()
-        
         q_grad = torch.autograd.grad(q_pred, action)[0]
 
         action.backward(gradient=q_grad)
-        torch.nn.utils.clip_grad_norm_(self.model.parameters(), 10.)
+        torch.nn.utils.clip_grad_norm_(self.actor.parameters(), 10.)
         self.aopt.step()
 
         return loss.item()
 
     def update(self):
-
-        # DDPG optimizes two different networks, so we'll match the 
-        # learning rate between them; 
-        # TODO: Add LR optimizer to each class to take care of this 
-        # instead
-        lr = self.aopt.param_groups[0]['lr']
-        for param_group in self.copt.param_groups:
-            param_group['lr'] = max(param_group['lr'], lr)
-
-        self.model_target.load_state_dict(self.model.state_dict())
+        self.actor_target.load_state_dict(self.actor.state_dict())
         self.critic_target.load_state_dict(self.critic.state_dict())

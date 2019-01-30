@@ -19,8 +19,8 @@ class DDQN:
         self.target = copy.deepcopy(self.model)
         self.target.eval()
 
-        self.cem = CEMOptimizer(**config)
-        self.uniform = UniformOptimizer(**config)
+        self.action_select_eval = CEMOptimizer(**config)
+        self.action_select_train = UniformOptimizer(**config)
 
         self.optimizer = torch.optim.Adam(self.model.parameters(),
                                           config['lrate'],
@@ -59,7 +59,7 @@ class DDQN:
 
         if np.random.random() < explore_prob:
             return np.random.uniform(*self.bounds, size=(self.action_size,))
-        return self.cem(self.model, state, timestep)[0].detach()
+        return self.action_select_eval(self.model, state, timestep)[0].detach()
 
     def train(self, memory, gamma, batch_size, **kwargs):
         """Performs a single step of Q-Learning."""
@@ -82,7 +82,7 @@ class DDQN:
         with torch.no_grad():
 
             # DDQN finds the maximal action for the current policy
-            aopt, _ = self.uniform(self.model, s1, t1)
+            aopt, _ = self.action_select_train(self.model, s1, t1)
 
             # but uses the q-value from the target network
             target = r + (1. - done) * gamma * self.target(s1, t1, aopt).view(-1)

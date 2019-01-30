@@ -5,7 +5,6 @@ from collections import deque
 import numpy as np
 import ray
 import torch
-#from factory import make_env, make_model, make_memory
 
 
 def make_env(max_steps, is_test, render):
@@ -187,8 +186,6 @@ class EnvWrapper:
 def test(envs, weights, rollouts, explore):
     """Helper function for evaluating current policy in environments."""
 
-    # If model weights are on GPU, need to move them to CPU to 
-    # interface with ray
     for w in weights:
         for k, v in w.items():
             w[k] = v.cpu()

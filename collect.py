@@ -3,8 +3,7 @@ import argparse
 import numpy as np
 import ray
 from gym import spaces
-from main import EnvWrapper
-from factory import make_env
+from main import EnvWrapper, make_env
 from models.base.memory import BaseMemory
 
 
@@ -54,7 +53,7 @@ if __name__ == '__main__':
     parser.add_argument('--is-test', action='store_true', default=False)
     parser.add_argument('--buffer-size', default=100000, type=int)
     parser.add_argument('--seed', default=None, type=int)
-    parser.add_argument('--remotes', dest='num_remotes', default=1, type=int)
+    parser.add_argument('--remotes', dest='num_remotes', default=10, type=int)
     parser.add_argument('--merge-every', default=5, type=int,
                         help='Gather rollouts every K episodes')
     parser.add_argument('--outdir', default='data', type=str)
@@ -77,7 +76,7 @@ if __name__ == '__main__':
 
     while not memory.is_full:
 
-        rollouts = [env.rollout.remote(args.merge_every) for env in envs]
+        rollouts = [env.rollout.remote(None, args.merge_every) for env in envs]
 
         for cpu in ray.get(rollouts):
             for batch in cpu:

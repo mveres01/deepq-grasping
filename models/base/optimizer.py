@@ -6,9 +6,8 @@ def _preprocess_inputs(image, timestep, device):
 
     if isinstance(image, np.ndarray):
         image = torch.from_numpy(image).to(device)
-    if isinstance(timestep, float):
-        timestep = torch.tensor([timestep], device=device)
-
+    if isinstance(timestep, (int, float)):
+        timestep = torch.tensor([timestep], dtype=torch.float32, device=device)
     return image, timestep
 
 

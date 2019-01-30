@@ -96,6 +96,10 @@ class BaseMemory(Dataset):
         print('Warning: Do not save memory unless you are aware of potential '
               'overwrites in the dataset.\n')
 
+
+        print('Percent successes: ', np.mean(self.reward[self.terminal==True]))
+        print('\n\n')
+
         if len(self.state) < self.buffer_size:
             raise ValueError('Requested %d samples, but dataset only has %d' % \
                              (self.buffer_size, len(self.state)))

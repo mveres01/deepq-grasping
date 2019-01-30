@@ -3,9 +3,120 @@ import time
 import argparse
 from collections import deque
 import numpy as np
-import torch
 import ray
-from factory import make_env, make_model, make_memory
+import torch
+#from factory import make_env, make_model, make_memory
+
+
+def make_env(max_steps, is_test, render):
+    """Makes a new environment given a config file."""
+
+    import pybullet_envs.bullet.kuka_diverse_object_gym_env as e
+    #import modified_kuka_diverse_object_gym_env as e
+
+    # Defines parameters for distributed evaluation
+    env_config = {
+                  #'actionRepeat':160,
+                  'actionRepeat':80,
+                  'isEnableSelfCollision':True,
+                  'renders':render,
+                  'isDiscrete':False,
+                  'maxSteps':max_steps,
+                  #'dv':0.12,
+                  'dv':0.06,
+                  'removeHeightHack':True,
+                  'blockRandom':0.3,
+                  'cameraRandom':0,
+                  'width':64,
+                  'height':64,
+                  'numObjects':5,
+                  'isTest':is_test}
+
+    def create():
+        return e.KukaDiverseObjectEnv(**env_config)
+    return create
+
+'''
+def make_env(max_steps, is_test, render):
+    """Makes a new environment given a config file."""
+
+    from grasping_env import KukaGraspingProceduralEnv
+
+    # Defines parameters for distributed evaluation
+    env_config = {'block_random':0.3,
+                  'camera_random':0,
+                  'simple_observations':False,
+                  'continuous':True,
+                  'remove_height_hack':True,
+                  'urdf_list':None,
+                  'render_mode':'GUI',
+                  #'render_mode':'DIRECT',
+                  'num_objects':5,
+                  'dv':0.12,
+                  'target':False,
+                  'target_filenames':None,
+                  'non_target_filenames':None,
+                  'num_resets_per_setup':1,
+                  'render_width':128,
+                  'render_height':128,
+                  'downsample_width':64,
+                  'downsample_height':64,
+                  'test':is_test,
+                  'allow_duplicate_objects':True,
+                  'max_num_training_models':900,
+                  'max_num_test_models':100
+             }
+
+    def create():
+        return KukaGraspingProceduralEnv(**env_config)
+    return create
+'''
+
+def make_model(args, device):
+    """Makes a new model given a config file."""
+
+    # Defines parameters for network generator
+    config = {'action_size':4, 'bounds':(-1, 1), 'device':device}
+    config.update(vars(args))
+
+    if args.model == 'dqn':
+        from models.dqn import DQN as Model
+    elif args.model == 'ddqn':
+        from models.ddqn import DDQN as Model
+    elif args.model == 'ddpg':
+        from models.ddpg import DDPG as Model
+    elif args.model == 'supervised':
+        from models.supervised import Supervised as Model
+    elif args.model == 'mcre':
+        from models.mcre import MCRE as Model
+    elif args.model == 'cmcre':
+        from models.cmcre import CMCRE as Model
+    else:
+        raise NotImplementedError('Model <%s> not implemented' % args.model)
+
+    def create():
+        return Model(config)
+    return create
+
+
+def make_memory(model, buffer_size):
+    """Initializes a memory structure.
+
+    Some models require slight modifications to the replay buffer,
+    such as sampling a full episode, setting discounted rewards, or
+    altering the action. in these cases, the base.memory module gets
+    overridden in the respective files.
+    """
+
+    if model == 'supervised':
+        from models.supervised import Memory
+    elif model == 'mcre':
+        from models.mcre import Memory
+    elif model == 'cmcre':
+        from models.cmcre import Memory
+    else:
+        from models.base.memory import BaseMemory as Memory
+    return Memory(buffer_size)
 
 
 @ray.remote(num_cpus=1)
@@ -36,7 +147,10 @@ class EnvWrapper:
         return self.env.step(action)
 
     def reset(self):
-        return self.env.reset()
+        out = self.env.reset()
+        if isinstance(out, tuple):
+            return out[0]
+        return out
 
     def rollout(self, weights, num_episodes=5, explore_prob=0.):
         """Performs a full grasping episode in the environment."""
@@ -46,8 +160,9 @@ class EnvWrapper:
         episodes = []
         for _ in range(num_episodes):
 
-            state, step, done = self.reset(), 0., False
-            state = state.transpose(2, 0, 1)[np.newaxis]
+            state = self.reset().transpose(2, 0, 1)[np.newaxis]
+            step = 0
+            done = False
 
             cur_episode = []
             while not done:
@@ -71,6 +186,9 @@ class EnvWrapper:
 
 def test(envs, weights, rollouts, explore):
     """Helper function for evaluating current policy in environments."""
+
+    # If model weights are on GPU, need to move them to CPU to 
+    # interface with ray
     for w in weights:
         for k, v in w.items():
             w[k] = v.cpu()
@@ -89,8 +207,9 @@ def main(args):
     np.random.seed(args.seed)
     torch.manual_seed(args.seed)
 
-    # Make the remote environments; the models aren't very large and can
-    # be run fairly quickly on the cpus. Save the GPUs for training
+    # Use the factory method to make both model and environment (e.g. every 
+    # call to make_env() will spawn a new environment using same parameters).
+    # Note that models aren't very large and can be run quickly on CPU. 
     env_creator = make_env(args.max_steps, args.is_test, args.render)
     model_creator = make_model(args, torch.device('cpu'))
 
@@ -98,7 +217,7 @@ def main(args):
     for _ in range(args.remotes):
         envs.append(EnvWrapper.remote(env_creator, model_creator, args.seed_env))
 
-    # We'll put the trainable model on the GPU if one's available
+    # Trainable model does a significant amount of more work, so put on GPU
     device = torch.device('cpu' if args.no_cuda or not
                           torch.cuda.is_available() else 'cuda')
     model = make_model(args, device)()
@@ -134,7 +253,7 @@ def main(args):
 
             if episode % args.update_iter == 0:
                 model.update()
-
+            
             # Validation step;
             # Here we take the weights from the current network, and distribute
             # them to all remote instances. While the network trains for another
@@ -143,12 +262,12 @@ def main(args):
             # halted until outcomes are returned
             if episode % iters_per_epoch == 0:
             
-                print('Waiting (Took: %2.4fs)'%(time.time() - start))
-
                 cur_episode = '%d' % (episode // iters_per_epoch)
                 model.save_checkpoint(os.path.join(checkpoint_dir, cur_episode))
 
-                # Collect results from the previous epoch
+                # Collect results from the previous epoch.
+                # Note that all steps of a rollout are returned, but only the 
+                # last one will have the reward for that episode.
                 for device in ray.get(results):
                     for ep in device:
                         # (s0, act, r, s1, terminal, timestep)
@@ -203,12 +322,12 @@ if __name__ == '__main__':
     parser.add_argument('--gamma', default=0.9, type=float)
     parser.add_argument('--decay', default=1e-5, type=float)
     parser.add_argument('--lr', dest='lrate', default=1e-3, type=float)
-    parser.add_argument('--batch-size', default=512, type=int)
+    parser.add_argument('--batch-size', default=256, type=int)
     parser.add_argument('--update', dest='update_iter', default=50, type=int)
-    parser.add_argument('--uniform', dest='num_uniform', default=64, type=int)
+    parser.add_argument('--uniform', dest='num_uniform', default=16, type=int)
     parser.add_argument('--cem', dest='num_cem', default=64, type=int)
     parser.add_argument('--cem-iter', default=3, type=int)
-    parser.add_argument('--cem-elite', default=6, type=int)
+    parser.add_argument('--cem-elite', default=10, type=int)
 
     # Environment Parameters
     parser.add_argument('--max-steps', default=15, type=int)
@@ -222,6 +341,5 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     #ray.init(redis_address="127.0.0.1:6379")
-    ray.init(num_gpus=1, num_cpus=args.remotes)
-    time.sleep(1)
-    main(parser.parse_args())
+    ray.init(num_cpus=args.remotes)
+    main(args)

@@ -3,7 +3,7 @@ import argparse
 import numpy as np
 import ray
 from gym import spaces
-from main import EnvWrapper, make_env
+from parallel import EnvWrapper, make_env
 from models.base.memory import BaseMemory
 
 

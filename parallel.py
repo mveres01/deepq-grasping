@@ -3,8 +3,16 @@ import time
 import argparse
 from collections import deque
 import numpy as np
-import ray
 import torch
+
+try:
+    import ray
+except ImportError:
+    # This exception is used to allow running both serial and parallel versions. 
+    # Windows unfortunately doesn't support the Ray library. Rather then 
+    # putting the make_* generators into their own file, we'll just include 
+    # them here as the primary use case
+    pass
 
 
 def make_env(max_steps, is_test, render):
@@ -13,15 +21,11 @@ def make_env(max_steps, is_test, render):
     import pybullet_envs.bullet.kuka_diverse_object_gym_env as e
     #import modified_kuka_diverse_object_gym_env as e
 
-    # Defines parameters for distributed evaluation
-    env_config = {
-                  #'actionRepeat':160,
-                  'actionRepeat':80,
+    env_config = {'actionRepeat':80,
                   'isEnableSelfCollision':True,
                   'renders':render,
                   'isDiscrete':False,
                   'maxSteps':max_steps,
-                  #'dv':0.12,
                   'dv':0.06,
                   'removeHeightHack':True,
                   'blockRandom':0.3,
@@ -34,6 +38,7 @@ def make_env(max_steps, is_test, render):
     def create():
         return e.KukaDiverseObjectEnv(**env_config)
     return create
+
 
 '''
 def make_env(max_steps, is_test, render):
@@ -48,10 +53,9 @@ def make_env(max_steps, is_test, render):
                   'continuous':True,
                   'remove_height_hack':True,
                   'urdf_list':None,
-                  'render_mode':'GUI',
-                  #'render_mode':'DIRECT',
+                  'render_mode':'DIRECT',
                   'num_objects':5,
-                  'dv':0.12,
+                  'dv':0.06,
                   'target':False,
                   'target_filenames':None,
                   'non_target_filenames':None,
@@ -64,12 +68,13 @@ def make_env(max_steps, is_test, render):
                   'allow_duplicate_objects':True,
                   'max_num_training_models':900,
                   'max_num_test_models':100
-             }
+                }
 
     def create():
         return KukaGraspingProceduralEnv(**env_config)
     return create
 '''
+
 
 def make_model(args, device):
     """Makes a new model given a config file."""
@@ -204,9 +209,9 @@ def main(args):
     np.random.seed(args.seed)
     torch.manual_seed(args.seed)
 
-    # Use the factory method to make both model and environment (e.g. every 
+    # Use the factory method to make both model and environment (e.g. every
     # call to make_env() will spawn a new environment using same parameters).
-    # Note that models aren't very large and can be run quickly on CPU. 
+    # Note that models aren't very large and can be run quickly on CPU.
     env_creator = make_env(args.max_steps, args.is_test, args.render)
     model_creator = make_model(args, torch.device('cpu'))
 
@@ -250,7 +255,7 @@ def main(args):
 
             if episode % args.update_iter == 0:
                 model.update()
-            
+
             # Validation step;
             # Here we take the weights from the current network, and distribute
             # them to all remote instances. While the network trains for another
@@ -258,12 +263,12 @@ def main(args):
             # If an epoch finishes before remote instances, training will be
             # halted until outcomes are returned
             if episode % iters_per_epoch == 0:
-            
+
                 cur_episode = '%d' % (episode // iters_per_epoch)
                 model.save_checkpoint(os.path.join(checkpoint_dir, cur_episode))
 
                 # Collect results from the previous epoch.
-                # Note that all steps of a rollout are returned, but only the 
+                # Note that all steps of a rollout are returned, but only the
                 # last one will have the reward for that episode.
                 for device in ray.get(results):
                     for ep in device:
@@ -283,6 +288,9 @@ def main(args):
                 start = time.time()
 
     print('---------- Testing ----------')
+    # Note if this happens naturally after the model has been trained 
+    # (and not from the --test flag), this will be wrong as it will use 
+    # the training objects instead of testing.
     results = test(envs, model.get_weights(), args.rollouts, args.explore)
 
     steps, rewards = [], []
@@ -293,26 +301,28 @@ def main(args):
             rewards.append(ep[-1][2])
 
     print('Average across (%d) episodes: Step: %2.4f, Reward: %1.2f' %
-                    (args.rollouts * args.remotes, np.mean(steps),
-                     np.mean(rewards)))
-
+          (args.rollouts * args.remotes, np.mean(steps), np.mean(rewards)))
 
 
 if __name__ == '__main__':
 
     parser = argparse.ArgumentParser(description='Off Policy Deep Q-Learning')
 
-    # Model parameters
+    # Generic parameters
     parser.add_argument('--model', default='dqn',
                         choices=['dqn', 'ddqn', 'ddpg', 'supervised', 'mcre', 'cmcre'])
-    parser.add_argument('--data-dir', default='data100K')
-    parser.add_argument('--buffer-size', default=100000, type=int)
     parser.add_argument('--checkpoint', default=None)
     parser.add_argument('--epochs', dest='max_epochs', default=200, type=int)
     parser.add_argument('--explore', default=0.0, type=float)
     parser.add_argument('--no-cuda', action='store_true', default=False)
+    parser.add_argument('--rollouts', default=8, type=int)
+    parser.add_argument('--remotes', default=10, type=int)
 
-    # Hyperparameters
+    # Memory model parameters; these get passed to make_memory function
+    parser.add_argument('--data-dir', default='data100K')
+    parser.add_argument('--buffer-size', default=100000, type=int)
+
+    # Hyperparameters; these get pass from make_model into corresponding algs
     parser.add_argument('--seed', default=1234, type=int)
     parser.add_argument('--seed-env', default=None, type=int)
     parser.add_argument('--channels', dest='out_channels', default=32, type=int)
@@ -326,14 +336,10 @@ if __name__ == '__main__':
     parser.add_argument('--cem-iter', default=3, type=int)
     parser.add_argument('--cem-elite', default=10, type=int)
 
-    # Environment Parameters
+    # Environment Parameters; if you add any, make sure to modify make_env above
     parser.add_argument('--max-steps', default=15, type=int)
     parser.add_argument('--render', action='store_true', default=False)
     parser.add_argument('--test', dest='is_test', action='store_true', default=False)
-
-    # Distributed Parameters
-    parser.add_argument('--rollouts', default=8, type=int)
-    parser.add_argument('--remotes', default=10, type=int)
 
     args = parser.parse_args()
 

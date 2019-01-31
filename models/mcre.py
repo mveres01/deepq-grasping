@@ -73,10 +73,10 @@ class MCRE:
                                           weight_decay=config['decay'])
 
     def get_weights(self):
-        return self.model.state_dict()
+        return (self.model.state_dict(),)
 
     def set_weights(self, weights):
-        self.model.load_state_dict(weights)
+        self.model.load_state_dict(weights[0])
 
     def load_checkpoint(self, checkpoint_dir):
         """Loads a model from a directory containing a checkpoint."""
@@ -106,8 +106,10 @@ class MCRE:
 
     def train(self, memory, gamma, batch_size, **kwargs):
 
-        # Sample a minibatch from the memory buffer
-        s0, act, r, _, _, timestep = memory.sample(batch_size // 8)
+        # Sample a minibatch from the memory buffer. Note that we sample
+        # full grasping episodes in this method, so the output of 
+        # memory.sample will be episode_length * num_episodes
+        s0, act, r, _, _, timestep = memory.sample(batch_size)
 
         s0 = torch.from_numpy(s0).to(self.device)
         act = torch.from_numpy(act).to(self.device)

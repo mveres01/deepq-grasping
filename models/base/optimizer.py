@@ -48,6 +48,8 @@ class CEMOptimizer:
                        .view(-1, *hstate.size()[1:])
 
         mu = torch.zeros(image.size(0), 1, self.action_size, device=self.device)
+        mu[0, 0, 2] = -1  # downward bias
+
         std = torch.ones_like(mu) * 0.5
 
         for i in range(self.iters):
@@ -59,9 +61,8 @@ class CEMOptimizer:
             action = action.view(-1, self.action_size)
 
             # Evaluate the actions using a forward pass through the network
-            with torch.no_grad():
-                q = network.qnet(hstate, network.action_net(action))
-                q = q.view(-1, self.pop_size)
+            q = network.qnet(hstate, network.action_net(action))
+            q = q.view(-1, self.pop_size)
 
             # Find the top actions and use them to update the sampling dist
             topq, topk = torch.topk(q, self.elite, dim=1)
@@ -120,9 +121,8 @@ class UniformOptimizer:
         actions = torch.zeros((hstate.size(0), self.action_size),
                               device=self.device).uniform_(*self.bounds)
 
-        with torch.no_grad():
-            q = network.qnet(hstate, network.action_net(actions))
-            q = q.view(-1, self.pop_size)
+        q = network.qnet(hstate, network.action_net(actions))
+        q = q.view(-1, self.pop_size)
 
         # Reshape to (Batch, Uniform) to find max action along dim=1
         topq, top1 = q.max(1)

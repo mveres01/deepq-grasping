@@ -79,14 +79,16 @@ class SupervisedCEMOptimizer(CEMOptimizer):
 
         # We repeat the hidden state representation of the input (rather
         # then the raw input itself) to save some memory
-        state = network.state_net(image, timestep)
+        hstate = network.state_net(image, timestep)
 
         # (B, N, R, C) -> repeat (B, Cem, N, R, C) -> (B * Cem, N, R, C)
-        state = state.unsqueeze(1) \
-                     .repeat(1, self.pop_size, 1, 1, 1) \
-                     .view(-1, *state.size()[1:])
+        hstate = hstate.unsqueeze(1) \
+                       .repeat(1, self.pop_size, 1, 1, 1) \
+                       .view(-1, *hstate.size()[1:])
 
         mu = torch.zeros(image.size(0), 1, self.action_size, device=self.device)
+        mu[0, 0, 2] = -1  # downward bias
+
         std = torch.ones_like(mu) * 0.5
 
         for i in range(self.iters):
@@ -101,7 +103,8 @@ class SupervisedCEMOptimizer(CEMOptimizer):
             action[:, 2] = action[:, 2].clamp(*self.zbnd)
 
             # Evaluate the actions using a forward pass through the network
-            q = network.optim_forward(state, action).view(-1, self.pop_size)
+            q = network.qnet(hstate, network.action_net(action))
+            q = q.view(-1, self.pop_size)
 
             # Find the top actions and use them to update the sampling dist
             topq, topk = torch.topk(q, self.elite, dim=1)

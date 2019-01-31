@@ -165,7 +165,7 @@ class EnvWrapper:
         for _ in range(num_episodes):
 
             state = self.reset().transpose(2, 0, 1)[np.newaxis]
-            step = 0
+            step = 0.
             done = False
 
             cur_episode = []

@@ -4,9 +4,9 @@ import numpy as np
 import torch
 import torch.optim as optim
 
-from .base.network import BaseNetwork
-from .base.memory import BaseMemory
-from .base.optimizer import CEMOptimizer, UniformOptimizer
+from network import BaseNetwork
+from memory import BaseMemory
+from optimizer import CEMOptimizer, UniformOptimizer
 
 
 class Memory(BaseMemory):

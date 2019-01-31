@@ -119,7 +119,7 @@ def make_memory(model, buffer_size):
     elif model == 'cmcre':
         from models.cmcre import Memory
     else:
-        from models.base.memory import BaseMemory as Memory
+        from memory import BaseMemory as Memory
     return Memory(buffer_size)
 
 

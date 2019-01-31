@@ -3,6 +3,7 @@ import numpy as np
 
 
 def _preprocess_inputs(image, timestep, device):
+    """Ensures inputs are formatted as torch tensors."""
 
     if isinstance(image, np.ndarray):
         image = torch.from_numpy(image).to(device)
@@ -14,6 +15,19 @@ def _preprocess_inputs(image, timestep, device):
 class CEMOptimizer:
     """Implements the cross entropy method.
 
+    The main input when calling is the network. We assume that the network
+    has the following components:
+
+    * state_net: Computes a hidden representation from an image
+    * action_net: Computes a hidden representation from an action
+    * qnet: Computes an output q value from hidden states & actions
+
+    As this is a sampling based method, it is much more efficient to only
+    compute the hidden representations for states _once_, and re-use them
+    on subsequent iterations.
+
+    Notes
+    -----
     Note that the CEM method is (generally) only run in evaluation mode,
     where a single sample is optimized at a time. However, this function
     supports batch sizes > 0
@@ -33,6 +47,13 @@ class CEMOptimizer:
 
     @torch.no_grad()
     def __call__(self, network, image, timestep):
+
+        if not hasattr(network, 'state_net'):
+            raise AttributeError('Network does not have \"state_net\" parameter.')
+        elif not hasattr(network, 'action_net'):
+            raise AttributeError('Network does not have \"action_net\" parameter.')
+        elif not hasattr(network, 'qnet'):
+            raise AttributeError('Network does not have \"qnet\" parameter.')
 
         network.eval()
 
@@ -84,14 +105,22 @@ class CEMOptimizer:
 class UniformOptimizer:
     """Used during training to find the most likely actions.
 
+    The main input when calling is the network. We assume that the network
+    has the following components:
+
+    * state_net: Computes a hidden representation from an image
+    * action_net: Computes a hidden representation from an action
+    * qnet: Computes an output q value from hidden states & actions
+
+    As this is a sampling based method, it is much more efficient to only
+    compute the hidden representations for states _once_, and re-use them
+    on subsequent iterations.
+
+    Notes
+    -----
     This function samples a batch of vectors from [-1, 1], and computes
     the Q value using the corresponding state. The action with the
     highest Q value is returned as the optimal action.
-
-    As we train with minibatchs of examples (i.e. batch_size > 1), we
-    calculate the optimal action over all samples by repeating the inputs
-    to get batch size of (num_samples * num_repeats, ... ), and then pass
-    everything through the network at once
     """
 
     def __init__(self, num_uniform, action_size, bounds, device, **kwargs):
@@ -103,6 +132,13 @@ class UniformOptimizer:
 
     @torch.no_grad()
     def __call__(self, network, image, timestep):
+
+        if not hasattr(network, 'state_net'):
+            raise AttributeError('Network does not have \"state_net\" parameter.')
+        elif not hasattr(network, 'action_net'):
+            raise AttributeError('Network does not have \"action_net\" parameter.')
+        elif not hasattr(network, 'qnet'):
+            raise AttributeError('Network does not have \"qnet\" parameter.')
 
         network.eval()
 

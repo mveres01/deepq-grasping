@@ -57,10 +57,6 @@ class EnvWrapper:
 
                 next_state, reward, done, debug = self.step(action)
 
-                print('debug')
-                for k, v in debug.items():
-                    print(k, v)
-
                 next_state = next_state.transpose(2, 0, 1)[np.newaxis]
                 cur_episode.append((state, action, reward, next_state, done, step))
 
@@ -189,7 +185,7 @@ if __name__ == '__main__':
     parser.add_argument('--model', default='dqn',
                         choices=['dqn', 'ddqn', 'ddpg', 'supervised', 'mcre', 'cmcre'])
     parser.add_argument('--data-dir', default='data100K')
-    parser.add_argument('--buffer-size', default=100, type=int)
+    parser.add_argument('--buffer-size', default=100000, type=int)
     parser.add_argument('--checkpoint', default=None)
     parser.add_argument('--epochs', dest='max_epochs', default=200, type=int)
     parser.add_argument('--explore', default=0.0, type=float)

@@ -4,11 +4,11 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-
-from .base.network import StateNetwork, BaseNetwork
+from network import StateNetwork, BaseNetwork
 
 
 class Actor(nn.Module):
+    """Defines the actor model that learns to predict actions."""
 
     def __init__(self, out_channels, action_size, **kwargs):
         super(Actor, self).__init__()

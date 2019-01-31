@@ -110,7 +110,7 @@ class MCRE(BasePolicy):
         # Sample a minibatch from the memory buffer. Note that we sample
         # full grasping episodes in this method, so the output of 
         # memory.sample will be episode_length * num_episodes
-        s0, act, r, _, _, timestep = memory.sample(batch_size)
+        s0, act, r, _, _, timestep = memory.sample(batch_size // 8)
 
         s0 = torch.from_numpy(s0).to(self.device)
         act = torch.from_numpy(act).to(self.device)

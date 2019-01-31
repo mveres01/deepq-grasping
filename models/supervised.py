@@ -4,9 +4,10 @@ import torch
 import torch.optim as optim
 import torch.nn.functional as F
 
-from .base.network import BaseNetwork
-from .base.memory import BaseMemory
-from .base.optimizer import CEMOptimizer, _preprocess_inputs
+from base.policy import BasePolicy
+from base.network import BaseNetwork
+from base.memory import BaseMemory
+from base.optimizer import CEMOptimizer, _preprocess_inputs
 
 
 class Memory(BaseMemory):
@@ -123,7 +124,7 @@ class SupervisedCEMOptimizer(CEMOptimizer):
         return mu.squeeze(1), topq
 
 
-class Supervised:
+class Supervised(BasePolicy):
 
     def __init__(self, config):
 

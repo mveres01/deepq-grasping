@@ -4,7 +4,8 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from network import StateNetwork, BaseNetwork
+from base.network import StateNetwork, BaseNetwork
+from base.policy import BasePolicy
 
 
 class Actor(nn.Module):
@@ -33,7 +34,7 @@ class Actor(nn.Module):
         return out
 
 
-class DDPG:
+class DDPG(BasePolicy):
 
     def __init__(self, config):
 

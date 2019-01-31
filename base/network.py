@@ -1,4 +1,3 @@
-import numpy as np
 import torch
 from torch import nn
 import torch.nn.functional as F
@@ -62,7 +61,7 @@ class StateActionNetwork(nn.Module):
         # Process the action & broadcast to state shape
         out = hidden_action.unsqueeze(2).unsqueeze(3).expand_as(hidden_state)
 
-        # (h_s, h_a) -> q
+        # (hidden_state, hidden_aaction) -> q
         out = F.relu(hidden_state + out).view(out.size(0), -1)
         out = F.relu(self.fc1(out))
         out = F.relu(self.fc2(out))
@@ -74,8 +73,8 @@ class BaseNetwork(nn.Module):
     """Implements the main (state, action) -> (outcome) network.
 
     To make optimization more efficient (with CEM or Uniform action optimizers),
-    the network is split into different processing blocks. The expensive state 
-    computation is performed only once, while the hidden action representations 
+    the network is split into different processing blocks. The expensive state
+    computation is performed only once, while the hidden action representations
     may be called repeatedly during the optimization process.
     """
 
@@ -85,7 +84,7 @@ class BaseNetwork(nn.Module):
         self.state_net = StateNetwork(out_channels)
         self.action_net = ActionNetwork(action_size, out_channels + 1)
         self.qnet = StateActionNetwork(out_channels)
-        
+
         for param in self.parameters():
             if len(param.shape) > 1:
                 nn.init.xavier_normal_(param)

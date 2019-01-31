@@ -4,10 +4,10 @@ import numpy as np
 import torch
 import torch.optim as optim
 
-from network import BaseNetwork
-from memory import BaseMemory
-from optimizer import CEMOptimizer, UniformOptimizer
-
+from base.network import BaseNetwork
+from base.memory import BaseMemory
+from base.optimizer import CEMOptimizer, UniformOptimizer
+from base.policy import BasePolicy
 
 class Memory(BaseMemory):
 
@@ -30,7 +30,7 @@ class Memory(BaseMemory):
         return self[indices]
 
 
-class CMCRE:
+class CMCRE(BasePolicy):
 
     def __init__(self, config):
 

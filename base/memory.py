@@ -1,10 +1,13 @@
 import os
 import numpy as np
-from gym import spaces
 from torch.utils.data import Dataset
 
 
 class BaseMemory(Dataset):
+    """Defines a generic experience replay memory module.
+
+    Some algorithms may extend this class if they need additional flexibility.
+    """
 
     def __init__(self, buffer_size, **kwargs):
 
@@ -31,10 +34,16 @@ class BaseMemory(Dataset):
                 np.float32(self.timestep[idx]))
 
     def add(self, state, action, reward, next_state, terminal, timestep):
+        """Adds experience to the memory buffer.
 
-        # In the off-policy setting, adding to a dataset means we're doing 
+        This is a naive approach which assumes that we have enough memory
+        available on the compute to store :buffer_size: amount of data.
+
+        TODO: Memory map this?
+        """
+
+        # In the off-policy setting, adding to a dataset means we're doing
         # data collections. Initialize empty memory to hold necessary info
-        # TODO: Find a more efficient way of doing this; memory map a file?
         if self.state is None:
 
             if isinstance(action, list):
@@ -67,8 +76,8 @@ class BaseMemory(Dataset):
     def load(self, data_dir, buffer_size=100000, **kwargs):
         """Loads a dataset using memory-mapping.
 
-        In particular, the :state: and :next_state: variable of a dataset 
-        take a large amount of space. To avoid OOM issues, load the entire 
+        In particular, the :state: and :next_state: variable of a dataset
+        take a large amount of space. To avoid OOM issues, load the entire
         dataset as being memory-mapped that gets read when needed.
         """
 
@@ -96,18 +105,15 @@ class BaseMemory(Dataset):
         print('Warning: Do not save memory unless you are aware of potential '
               'overwrites in the dataset.\n')
 
-
-        print('Percent successes: ', np.mean(self.reward[self.terminal==True]))
-        print('\n\n')
-
         if len(self.state) < self.buffer_size:
             raise ValueError('Requested %d samples, but dataset only has %d' % \
                              (self.buffer_size, len(self.state)))
-       
+
         self.is_full = True
         self.cur_idx = self.buffer_size
 
     def sample(self, batch_size, balanced=False):
+        """Samples a batch of experience from the buffer."""
 
         # Dirty way to balance a minibatch by sampling an equal amount from
         # both positive and negative examples
@@ -126,6 +132,7 @@ class BaseMemory(Dataset):
         return self[batch_idx]
 
     def save(self, save_dir='.'):
+        """Saves the current buffer to memory."""
 
         if not os.path.exists(save_dir):
             os.makedirs(save_dir)

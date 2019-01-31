@@ -4,9 +4,10 @@ import numpy as np
 import torch
 import torch.optim as optim
 
-from network import BaseNetwork
-from memory import BaseMemory
-from optimizer import CEMOptimizer, UniformOptimizer
+from base.policy import BasePolicy
+from base.network import BaseNetwork
+from base.memory import BaseMemory
+from base.optimizer import CEMOptimizer, UniformOptimizer
 
 
 class Memory(BaseMemory):
@@ -55,7 +56,7 @@ class Memory(BaseMemory):
         return self[indices]
 
 
-class MCRE:
+class MCRE(BasePolicy):
 
     def __init__(self, config):
 
@@ -98,7 +99,7 @@ class MCRE:
 
     @torch.no_grad()
     def sample_action(self, state, timestep, explore_prob):
-        """Samples an action to perform in the environment."""
+        """Samples an action to perform using CEM."""
 
         if np.random.random() < explore_prob:
             return np.random.uniform(*self.bounds, size=(self.action_size,))

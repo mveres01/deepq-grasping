@@ -2,11 +2,13 @@ import os
 import copy
 import numpy as np
 import torch
-from network import BaseNetwork
-from optimizer import CEMOptimizer, UniformOptimizer
+
+from base.policy import BasePolicy
+from base.network import BaseNetwork
+from base.optimizer import CEMOptimizer, UniformOptimizer
 
 
-class DDQN:
+class DDQN(BasePolicy):
 
     def __init__(self, config):
 

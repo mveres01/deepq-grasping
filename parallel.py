@@ -8,9 +8,9 @@ import torch
 try:
     import ray
 except ImportError:
-    # This exception is used to allow running both serial and parallel versions. 
-    # Windows unfortunately doesn't support the Ray library. Rather then 
-    # putting the make_* generators into their own file, we'll just include 
+    # This exception is used to allow running both serial and parallel versions.
+    # Windows unfortunately doesn't support the Ray library. Rather then
+    # putting the make_* generators into their own file, we'll just include
     # them here as the primary use case
     pass
 
@@ -19,7 +19,6 @@ def make_env(max_steps, is_test, render):
     """Makes a new environment given a config file."""
 
     import pybullet_envs.bullet.kuka_diverse_object_gym_env as e
-    #import modified_kuka_diverse_object_gym_env as e
 
     env_config = {'actionRepeat':80,
                   'isEnableSelfCollision':True,
@@ -38,42 +37,6 @@ def make_env(max_steps, is_test, render):
     def create():
         return e.KukaDiverseObjectEnv(**env_config)
     return create
-
-
-'''
-def make_env(max_steps, is_test, render):
-    """Makes a new environment given a config file."""
-
-    from grasping_env import KukaGraspingProceduralEnv
-
-    # Defines parameters for distributed evaluation
-    env_config = {'block_random':0.3,
-                  'camera_random':0,
-                  'simple_observations':False,
-                  'continuous':True,
-                  'remove_height_hack':True,
-                  'urdf_list':None,
-                  'render_mode':'DIRECT',
-                  'num_objects':5,
-                  'dv':0.06,
-                  'target':False,
-                  'target_filenames':None,
-                  'non_target_filenames':None,
-                  'num_resets_per_setup':1,
-                  'render_width':128,
-                  'render_height':128,
-                  'downsample_width':64,
-                  'downsample_height':64,
-                  'test':is_test,
-                  'allow_duplicate_objects':True,
-                  'max_num_training_models':900,
-                  'max_num_test_models':100
-                }
-
-    def create():
-        return KukaGraspingProceduralEnv(**env_config)
-    return create
-'''
 
 
 def make_model(args, device):
@@ -119,7 +82,7 @@ def make_memory(model, buffer_size):
     elif model == 'cmcre':
         from models.cmcre import Memory
     else:
-        from memory import BaseMemory as Memory
+        from base.memory import BaseMemory as Memory
     return Memory(buffer_size)
 
 
@@ -288,8 +251,8 @@ def main(args):
                 start = time.time()
 
     print('---------- Testing ----------')
-    # Note if this happens naturally after the model has been trained 
-    # (and not from the --test flag), this will be wrong as it will use 
+    # Note if this happens naturally after the model has been trained
+    # (and not from the --test flag), this will be wrong as it will use
     # the training objects instead of testing.
     results = test(envs, model.get_weights(), args.rollouts, args.explore)
 

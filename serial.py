@@ -55,7 +55,7 @@ class EnvWrapper:
                 s0 = state.astype(np.float32) / 255.
                 action = self.policy.sample_action(s0, step, explore_prob)
 
-                next_state, reward, done, debug = self.step(action)
+                next_state, reward, done, _ = self.step(action)
 
                 next_state = next_state.transpose(2, 0, 1)[np.newaxis]
                 cur_episode.append((state, action, reward, next_state, done, step))
@@ -127,7 +127,6 @@ def main(args):
         iters_per_epoch = args.buffer_size // args.batch_size
 
 
-        results = []
         start = time.time()
         for episode in range(args.max_epochs * iters_per_epoch):
 
@@ -136,7 +135,7 @@ def main(args):
 
             if episode % args.update_iter == 0:
                 model.update()
-            
+
             # Validation step;
             # Here we take the weights from the current network, and distribute
             # them to all remote instances. While the network trains for another
@@ -144,12 +143,13 @@ def main(args):
             # If an epoch finishes before remote instances, training will be
             # halted until outcomes are returned
             if (episode + 1) % iters_per_epoch == 0:
-            
+
                 cur_episode = '%d' % (episode // iters_per_epoch)
                 model.save_checkpoint(os.path.join(checkpoint_dir, cur_episode))
 
                 # Collect results from the previous epoch
-                for device in test(envs, model.get_weights(), args.rollouts, args.explore):
+                for device in test(envs, model.get_weights(), 
+                                   args.rollouts, args.explore):
                     for ep in device:
                         # (s0, act, r, s1, terminal, timestep)
                         step_queue.append(ep[-1][-1])
@@ -172,7 +172,7 @@ def main(args):
             rewards.append(ep[-1][2])
 
     print('Average across (%d) episodes: Step: %2.4f, Reward: %1.2f' %
-                    (args.rollouts * args.remotes, np.mean(steps),
+          (args.rollouts * args.remotes, np.mean(steps),
                      np.mean(rewards)))
 
 

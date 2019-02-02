@@ -4,7 +4,7 @@ import argparse
 from collections import deque
 import numpy as np
 import torch
-from parallel import make_env, make_model, make_memory
+from utils import make_env, make_model, make_memory
 
 
 class EnvWrapper:

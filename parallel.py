@@ -4,86 +4,18 @@ import argparse
 from collections import deque
 import numpy as np
 import torch
+import ray
 
-try:
-    import ray
-except ImportError:
-    # This exception is used to allow running both serial and parallel versions.
-    # Windows unfortunately doesn't support the Ray library. Rather then
-    # putting the make_* generators into their own file, we'll just include
-    # them here as the primary use case
-    pass
+from utils import make_env, make_model, make_memory
 
 
-def make_env(max_steps, is_test, render):
-    """Makes a new environment given a config file."""
+def test(envs, weights, rollouts, explore):
+    """Helper function for evaluating current policy in environments."""
 
-    import pybullet_envs.bullet.kuka_diverse_object_gym_env as e
-
-    env_config = {'actionRepeat':80,
-                  'isEnableSelfCollision':True,
-                  'renders':render,
-                  'isDiscrete':False,
-                  'maxSteps':max_steps,
-                  'dv':0.06,
-                  'removeHeightHack':True,
-                  'blockRandom':0.3,
-                  'cameraRandom':0,
-                  'width':64,
-                  'height':64,
-                  'numObjects':5,
-                  'isTest':is_test}
-
-    def create():
-        return e.KukaDiverseObjectEnv(**env_config)
-    return create
-
-
-def make_model(args, device):
-    """Makes a new model given a config file."""
-
-    # Defines parameters for network generator
-    config = {'action_size':4, 'bounds':(-1, 1), 'device':device}
-    config.update(vars(args))
-
-    if args.model == 'dqn':
-        from models.dqn import DQN as Model
-    elif args.model == 'ddqn':
-        from models.ddqn import DDQN as Model
-    elif args.model == 'ddpg':
-        from models.ddpg import DDPG as Model
-    elif args.model == 'supervised':
-        from models.supervised import Supervised as Model
-    elif args.model == 'mcre':
-        from models.mcre import MCRE as Model
-    elif args.model == 'cmcre':
-        from models.cmcre import CMCRE as Model
-    else:
-        raise NotImplementedError('Model <%s> not implemented' % args.model)
-
-    def create():
-        return Model(config)
-    return create
-
-
-def make_memory(model, buffer_size):
-    """Initializes a memory structure.
-
-    Some models require slight modifications to the replay buffer,
-    such as sampling a full episode, setting discounted rewards, or
-    altering the action. in these cases, the base.memory module gets
-    overridden in the respective files.
-    """
-
-    if model == 'supervised':
-        from models.supervised import Memory
-    elif model == 'mcre':
-        from models.mcre import Memory
-    elif model == 'cmcre':
-        from models.cmcre import Memory
-    else:
-        from models.base.memory import BaseMemory as Memory
-    return Memory(buffer_size)
+    for w in weights:
+        for k, v in w.items():
+            w[k] = v.cpu()
+    return [env.rollout.remote(weights, rollouts, explore) for env in envs]
 
 
 @ray.remote(num_cpus=1)
@@ -137,9 +69,10 @@ class EnvWrapper:
                 action = self.policy.sample_action(s0, step, explore_prob)
 
                 next_state, reward, done, _ = self.step(action)
-
                 next_state = next_state.transpose(2, 0, 1)[np.newaxis]
-                cur_episode.append((state, action, reward, next_state, done, step))
+
+                cur_episode.append((state, action, reward, 
+                                    next_state, done, step))
 
                 state = next_state
                 step = step + 1.
@@ -147,15 +80,6 @@ class EnvWrapper:
             episodes.append(cur_episode)
 
         return episodes
-
-
-def test(envs, weights, rollouts, explore):
-    """Helper function for evaluating current policy in environments."""
-
-    for w in weights:
-        for k, v in w.items():
-            w[k] = v.cpu()
-    return [env.rollout.remote(weights, rollouts, explore) for env in envs]
 
 
 def main(args):

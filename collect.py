@@ -7,9 +7,10 @@ except ImportError:
     raise ImportError('Ray package must be available for collect experience.')
 
 from gym import spaces
-from parallel import EnvWrapper, make_env
-from base.memory import BaseMemory
-from base.policy import GenericPolicy
+from parallel import EnvWrapper
+from utils import make_env
+from models.base.memory import BaseMemory
+from models.base.policy import GenericPolicy
 
 
 class ContinuousDownwardBiasPolicy(GenericPolicy):
@@ -29,7 +30,6 @@ class ContinuousDownwardBiasPolicy(GenericPolicy):
         self._height_hack_prob = height_hack_prob
         self._action_space = spaces.Box(low=-1, high=1, shape=(4,))
 
-
     def sample_action(self, obs, step, explore_prob):
         """Implements height hack and grasping threshold hack.
         """
@@ -38,7 +38,6 @@ class ContinuousDownwardBiasPolicy(GenericPolicy):
         if np.random.random() < self._height_hack_prob:
             dz = -1
         return np.asarray([dx, dy, dz, da])
-
 
 
 def main(args):

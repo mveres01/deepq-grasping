@@ -4,8 +4,8 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from base.network import StateNetwork, BaseNetwork
-from base.policy import BasePolicy
+from models.base.network import StateNetwork, BaseNetwork
+from models.base.policy import BasePolicy
 
 
 class Actor(nn.Module):

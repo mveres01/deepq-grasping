@@ -4,10 +4,10 @@ import numpy as np
 import torch
 import torch.optim as optim
 
-from base.policy import BasePolicy
-from base.network import BaseNetwork
-from base.memory import BaseMemory
-from base.optimizer import CEMOptimizer, UniformOptimizer
+from models.base.policy import BasePolicy
+from models.base.network import BaseNetwork
+from models.base.memory import BaseMemory
+from models.base.optimizer import CEMOptimizer, UniformOptimizer
 
 
 class Memory(BaseMemory):

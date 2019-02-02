@@ -47,17 +47,17 @@ def make_model(args, device):
     config.update(vars(args))
 
     if args.model == 'dqn':
-        from dqn import DQN as Model
+        from models.dqn import DQN as Model
     elif args.model == 'ddqn':
-        from ddqn import DDQN as Model
+        from models.ddqn import DDQN as Model
     elif args.model == 'ddpg':
-        from ddpg import DDPG as Model
+        from models.ddpg import DDPG as Model
     elif args.model == 'supervised':
-        from supervised import Supervised as Model
+        from models.supervised import Supervised as Model
     elif args.model == 'mcre':
-        from mcre import MCRE as Model
+        from models.mcre import MCRE as Model
     elif args.model == 'cmcre':
-        from cmcre import CMCRE as Model
+        from models.cmcre import CMCRE as Model
     else:
         raise NotImplementedError('Model <%s> not implemented' % args.model)
 
@@ -76,13 +76,13 @@ def make_memory(model, buffer_size):
     """
 
     if model == 'supervised':
-        from supervised import Memory
+        from models.supervised import Memory
     elif model == 'mcre':
-        from mcre import Memory
+        from models.mcre import Memory
     elif model == 'cmcre':
-        from cmcre import Memory
+        from models.cmcre import Memory
     else:
-        from base.memory import BaseMemory as Memory
+        from models.base.memory import BaseMemory as Memory
     return Memory(buffer_size)
 
 

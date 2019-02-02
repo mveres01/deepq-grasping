@@ -3,12 +3,12 @@ import copy
 import numpy as np
 import torch
 
-from base.policy import BasePolicy
-from base.network import BaseNetwork
-from base.optimizer import CEMOptimizer, UniformOptimizer
+from models.base.network import BaseNetwork
+from models.base.optimizer import CEMOptimizer, UniformOptimizer
+from models.base.policy import BasePolicy
 
 
-class DDQN(BasePolicy):
+class DQN(BasePolicy):
 
     def __init__(self, config):
 
@@ -68,13 +68,13 @@ class DDQN(BasePolicy):
         self.model.train()
 
         # Sample a minibatch from the memory buffer
-        s0, act, r, s1, done, timestep = memory.sample(batch_size)
+        s0, act, r, s1, term, timestep = memory.sample(batch_size)
 
         s0 = torch.from_numpy(s0).to(self.device)
         act = torch.from_numpy(act).to(self.device)
         r = torch.from_numpy(r).to(self.device)
         s1 = torch.from_numpy(s1).to(self.device)
-        done = torch.from_numpy(done).to(self.device)
+        term = torch.from_numpy(term).to(self.device)
         t0 = torch.from_numpy(timestep).to(self.device)
         t1 = torch.from_numpy(timestep + 1).to(self.device)
 
@@ -82,11 +82,11 @@ class DDQN(BasePolicy):
 
         with torch.no_grad():
 
-            # DDQN finds the maximal action for the current policy
-            aopt, _ = self.action_select_train(self.model, s1, t1)
+            # Expectation uses the target network and evaluates
+            # actions sampled uniformly within space
+            _, qopt = self.action_select_train(self.target, s1, t1)
 
-            # but uses the q-value from the target network
-            target = r + (1. - done) * gamma * self.target(s1, t1, aopt).view(-1)
+            target = r + (1. - term) * gamma * qopt
 
         loss = torch.mean((pred - target) ** 2)
 
@@ -99,5 +99,6 @@ class DDQN(BasePolicy):
 
     def update(self):
         """Copy the network weights every few epochs."""
+
         self.target.load_state_dict(self.model.state_dict())
         self.target.eval()

@@ -47,17 +47,17 @@ def make_model(args, device):
     config.update(vars(args))
 
     if args.model == 'dqn':
-        from models.dqn import DQN as Model
+        from dqn import DQN as Model
     elif args.model == 'ddqn':
-        from models.ddqn import DDQN as Model
+        from ddqn import DDQN as Model
     elif args.model == 'ddpg':
-        from models.ddpg import DDPG as Model
+        from ddpg import DDPG as Model
     elif args.model == 'supervised':
-        from models.supervised import Supervised as Model
+        from supervised import Supervised as Model
     elif args.model == 'mcre':
-        from models.mcre import MCRE as Model
+        from mcre import MCRE as Model
     elif args.model == 'cmcre':
-        from models.cmcre import CMCRE as Model
+        from cmcre import CMCRE as Model
     else:
         raise NotImplementedError('Model <%s> not implemented' % args.model)
 
@@ -76,11 +76,11 @@ def make_memory(model, buffer_size):
     """
 
     if model == 'supervised':
-        from models.supervised import Memory
+        from supervised import Memory
     elif model == 'mcre':
-        from models.mcre import Memory
+        from mcre import Memory
     elif model == 'cmcre':
-        from models.cmcre import Memory
+        from cmcre import Memory
     else:
         from base.memory import BaseMemory as Memory
     return Memory(buffer_size)
@@ -114,10 +114,7 @@ class EnvWrapper:
         return self.env.step(action)
 
     def reset(self):
-        out = self.env.reset()
-        if isinstance(out, tuple):
-            return out[0]
-        return out
+        return self.env.reset()
 
     def rollout(self, weights, num_episodes=5, explore_prob=0.):
         """Performs a full grasping episode in the environment."""
@@ -136,6 +133,7 @@ class EnvWrapper:
 
                 # Note state is normalized to [0, 1]
                 s0 = state.astype(np.float32) / 255.
+
                 action = self.policy.sample_action(s0, step, explore_prob)
 
                 next_state, reward, done, _ = self.step(action)

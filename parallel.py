@@ -24,9 +24,14 @@ class EnvWrapper:
 
     Parameters
     ----------
-    env_creator: callable function that creates a regular Gym Environment
+    env_creator: callable function that creates a Gym Environment
     model_creator: callable function that returns an actor
     seed: random seed to use
+
+    Notes
+    -----
+    Assumes a model / policy has a "sample_action" function that returns 
+    a value from the model
     """
 
     def __init__(self, env_creator, model_creator, seed=None):
@@ -67,11 +72,11 @@ class EnvWrapper:
                 s0 = state.astype(np.float32) / 255.
 
                 action = self.policy.sample_action(s0, step, explore_prob)
-
                 next_state, reward, done, _ = self.step(action)
+
                 next_state = next_state.transpose(2, 0, 1)[np.newaxis]
 
-                cur_episode.append((state, action, reward, 
+                cur_episode.append((state, action, reward,
                                     next_state, done, step))
 
                 state = next_state
@@ -200,7 +205,7 @@ if __name__ == '__main__':
     parser.add_argument('--epochs', dest='max_epochs', default=200, type=int)
     parser.add_argument('--explore', default=0.0, type=float)
     parser.add_argument('--no-cuda', action='store_true', default=False)
-    parser.add_argument('--rollouts', default=8, type=int)
+    parser.add_argument('--rollouts', default=5, type=int)
     parser.add_argument('--remotes', default=10, type=int)
 
     # Memory model parameters; these get passed to make_memory function
@@ -211,10 +216,10 @@ if __name__ == '__main__':
     parser.add_argument('--seed', default=1234, type=int)
     parser.add_argument('--seed-env', default=None, type=int)
     parser.add_argument('--channels', dest='out_channels', default=32, type=int)
-    parser.add_argument('--gamma', default=0.9, type=float)
+    parser.add_argument('--gamma', default=0.90, type=float)
     parser.add_argument('--decay', default=1e-5, type=float)
     parser.add_argument('--lr', dest='lrate', default=1e-3, type=float)
-    parser.add_argument('--batch-size', default=256, type=int)
+    parser.add_argument('--batch-size', default=512, type=int)
     parser.add_argument('--update', dest='update_iter', default=50, type=int)
     parser.add_argument('--uniform', dest='num_uniform', default=16, type=int)
     parser.add_argument('--cem', dest='num_cem', default=64, type=int)

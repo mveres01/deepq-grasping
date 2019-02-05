@@ -82,7 +82,7 @@ class CMCRE(BasePolicy):
 
         return self.action_select_eval(self.model, state, timestep)[0].detach()
 
-    def _loss(self, Q, pred, r, gamma):
+    def _loss(self, Vstar, Qstar, r, gamma):
         """Calculates corrected loss over a single episode.
 
         Assumes that all inputs (Q, pred, r) belong to a single episode
@@ -91,17 +91,16 @@ class CMCRE(BasePolicy):
 
         # As we sample a full episode, we can just take the difference
         # between consecutive value predictions as the advantage
-        adv = r.clone() - Q  # set the last element
-        adv[:-1] = r[:-1] + gamma * Q[1:] - Q[:-1]
+        # Advantage = E[r(st, at) + gamma * V*(s_{t+1}) - V*(s_t)]
+        advantage = r - Vstar
+        advantage[:-1] = advantage[:-1] + gamma * Vstar[1:]
 
         out = torch.zeros_like(r)
         for i in reversed(range(r.shape[0] - 1)):
-            out[i] = gamma * (out[i+1] + (r[i+1] - adv[i+1]))
-
-        out = (out + r).detach()
+            out[i] = gamma * (out[i+1] + (r[i+1] - advantage[i+1]))
 
         # Later normalize over batch size
-        loss = ((pred - out) ** 2).sum()
+        loss = ((Qstar - (r + out)) ** 2).sum()
 
         return loss
 
@@ -118,15 +117,15 @@ class CMCRE(BasePolicy):
         r = torch.from_numpy(r).to(self.device)
         t0 = torch.from_numpy(timestep).to(self.device)
 
-        pred = self.model(s0, t0, act).view(-1)
+        # Need both Q&V
+        Q = self.model(s0, t0, act).view(-1)
 
-        # Calculate V* = \max_a Q(s_t, a)
-        _, Q = self.action_select_train(self.model, s0, t0)
+        _, V = self.action_select_train(self.model, s0, t0)
 
         # Sum the loss for each of the episodes
         loss = 0
         for s, e in zip(starts[:-1], starts[1:]):
-            loss = loss + self._loss(Q[s:e], pred[s:e], r[s:e], gamma)
+            loss = loss + self._loss(V[s:e], Q[s:e], r[s:e], gamma)
 
         loss = loss / s0.shape[0]
 

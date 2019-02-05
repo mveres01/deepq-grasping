@@ -5,7 +5,7 @@ from collections import deque
 import numpy as np
 import torch
 
-
+'''
 def make_env(max_steps, is_test, render):
     """Makes a new environment given a config file."""
 
@@ -27,6 +27,40 @@ def make_env(max_steps, is_test, render):
 
     def create():
         return e.KukaDiverseObjectEnv(**env_config)
+    return create
+'''
+
+def make_env(max_steps, is_test, render):
+    """Makes a new environment given a config file."""
+
+    del max_steps, render  # unused
+
+    from grasping_env import KukaGraspingProceduralEnv as e
+
+    env_config = {'block_random':0.3,
+                  'camera_random':0,
+                  'simple_observations':False,
+                  'continuous':True,
+                  'remove_height_hack':True,
+                  'urdf_list':None,
+                  'render_mode':'DIRECT',
+                  'num_objects':5,
+                  'dv':0.06,
+                  'target':False,
+                  'target_filenames':None,
+                  'non_target_filenames':None,
+                  'num_resets_per_setup':1,
+                  'render_width':128,
+                  'render_height':128,
+                  'downsample_width':64,
+                  'downsample_height':64,
+                  'test':is_test,
+                  'allow_duplicate_objects':True,
+                  'max_num_training_models':900,
+                  'max_num_test_models':100}
+    
+    def create():
+        return e(**env_config)
     return create
 
 

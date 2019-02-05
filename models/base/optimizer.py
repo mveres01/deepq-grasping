@@ -170,4 +170,3 @@ class UniformOptimizer:
 
         network.train()
         return actions.squeeze(1), topq
-

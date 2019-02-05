@@ -80,7 +80,8 @@ if __name__ == '__main__':
     parser.add_argument('--remotes', dest='num_remotes', default=10, type=int)
     parser.add_argument('--merge-every', default=5, type=int,
                         help='Gather rollouts every K episodes')
-    parser.add_argument('--outdir', default='data', type=str)
+    parser.add_argument('--outdir', required=True, type=str,
+                        help='Output directory to save experience to')
 
     args = parser.parse_args()
 

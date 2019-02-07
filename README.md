@@ -1,12 +1,30 @@
 # drl-grasping
 
-## Some findings:
+## Requirements
 
-- Constraining CEM search to (-1, 1) helps stabilize network
-- When using CEM and supervised learning, since we used an initial random policy that emphasized moving the gripper downwards, there may be a significant amount of space in the z-dim that we haven't explored. Can we protect against sampling in this space by limiting variables to spacific ranges? 
-- Should we scale the supervised values to be between [-1, 1]? Otherwise, compounding the values will give very large values along the z-dim compared to the X, Y, and rotation variables
-- CEM saturates easy, so try and prevent it from sticking to a particular value quickly early on
-- DDPG seems to need a lower gamma value (i.e. ~0.85) in order to converge on stable values, in comparison to DQN and DDQN which use values >= 0.9
-- Need a large L2 penalty (i.e. 0.01) in supervised learning to prevent overfitting 
+* pytorch 1.0 (https://pytorch.org/)
+* matplotlib
+* ```pip install ray```
+* ```pip install gym```
+* ```pip install pybullet```
 
-- Important: When using supervised learning, constrain the optimization on z-dim; otherwise, the model may choose z's that take the gripper away from the object, even though the dataset contains very few instances of this behaviour
+## To Run
+
+Note: Must be running Linux due to dependence on Ray package. Running the following command will spawn N remote servers (running on different cores) that uses a biased downward policy to grasp objects
+
+```python collect.py --remotes=1 --outdir=data100K```
+
+Once data has been collected, you can begin training off-policy DQL models:
+
+```python parallel.py --model=dqn```
+```python parallel.py --model=ddqn```
+```python parallel.py --model=ddpg```
+```python parallel.py --model=supervised```
+```python parallel.py --model=mcre```
+```python parallel.py --model=cmcre```
+
+The command line can be used to specify a number of arguments; See parallel.py for details. 
+
+If running a visdom server, you can replace ```parallel.py``` with ```parallel_vis.py``` to watch task execution. 
+
+More details and instructions to come

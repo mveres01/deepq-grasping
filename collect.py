@@ -40,7 +40,23 @@ class ContinuousDownwardBiasPolicy(GenericPolicy):
         return np.asarray([dx, dy, dz, da])
 
 
-def main(args):
+if __name__ == '__main__':
+
+    parser = argparse.ArgumentParser(description='Initialize memory')
+    parser.add_argument('--max-steps', default=15, type=int)
+    parser.add_argument('--is-test', action='store_true', default=False)
+    parser.add_argument('--buffer-size', default=100000, type=int)
+    parser.add_argument('--seed', default=None, type=int)
+    parser.add_argument('--remotes', dest='num_remotes', default=10, type=int)
+    parser.add_argument('--merge-every', default=5, type=int,
+                        help='Gather rollouts every K episodes')
+    parser.add_argument('--outdir', required=True, type=str,
+                        help='Output directory to save experience to')
+
+    args = parser.parse_args()
+
+    ray.init(num_cpus=args.num_remotes)
+    time.sleep(1)
 
     # Defines parameters for distributed evaluation
     env_creator = make_env(args.max_steps, args.is_test, render=False)
@@ -69,23 +85,3 @@ def main(args):
 
     memory.save(args.outdir)
 
-
-if __name__ == '__main__':
-
-    parser = argparse.ArgumentParser(description='Initialize memory')
-    parser.add_argument('--max-steps', default=15, type=int)
-    parser.add_argument('--is-test', action='store_true', default=False)
-    parser.add_argument('--buffer-size', default=100000, type=int)
-    parser.add_argument('--seed', default=None, type=int)
-    parser.add_argument('--remotes', dest='num_remotes', default=10, type=int)
-    parser.add_argument('--merge-every', default=5, type=int,
-                        help='Gather rollouts every K episodes')
-    parser.add_argument('--outdir', required=True, type=str,
-                        help='Output directory to save experience to')
-
-    args = parser.parse_args()
-
-    ray.init(num_cpus=args.num_remotes)
-    time.sleep(1)
-
-    main(args)

@@ -92,8 +92,7 @@ class CMCRE(BasePolicy):
         # As we sample a full episode, we can just take the difference
         # between consecutive value predictions as the advantage
         # Advantage = E[r(st, at) + gamma * V*(s_{t+1}) - V*(s_t)]
-        advantage = r - Vstar
-        advantage[:-1] = advantage[:-1] + gamma * Vstar[1:]
+        advantage = r - (Qstar - Vstar)
 
         out = torch.zeros_like(r)
         for i in reversed(range(r.shape[0] - 1)):

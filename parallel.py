@@ -109,6 +109,7 @@ def main(args):
     for _ in range(args.remotes):
         envs.append(EnvWrapper.remote(env_creator, model_creator, args.seed_env))
 
+
     # Trainable model does a significant amount of more work, so put on GPU
     device = torch.device('cpu' if args.no_cuda or not
                           torch.cuda.is_available() else 'cuda')
@@ -136,6 +137,7 @@ def main(args):
         # Perform a validation step every full pass through the data
         iters_per_epoch = args.buffer_size // args.batch_size
 
+        best = -np.inf
         results = []
         start = time.time()
         for episode in range(args.max_epochs * iters_per_epoch):
@@ -175,6 +177,10 @@ def main(args):
                       (cur_episode, np.mean(step_queue), np.mean(reward_queue),
                        np.mean(loss_queue), time.time() - start))
 
+                if np.mean(reward_queue) > best:
+                    best = np.mean(reward_queue)
+                    model.save_checkpoint(os.path.join(checkpoint_dir, 'best'))
+
                 start = time.time()
 
     print('---------- Testing ----------')
@@ -191,7 +197,7 @@ def main(args):
             rewards.append(ep[-1][2])
 
     print('Average across (%d) episodes: Step: %2.4f, Reward: %1.2f' %
-          (args.rollouts * args.remotes, np.mean(steps), np.mean(rewards)))
+          (len(rewards), np.mean(steps), np.mean(rewards)))
 
 
 if __name__ == '__main__':
@@ -202,18 +208,18 @@ if __name__ == '__main__':
     parser.add_argument('--model', default='dqn',
                         choices=['dqn', 'ddqn', 'ddpg', 'supervised', 'mcre', 'cmcre'])
     parser.add_argument('--checkpoint', default=None)
-    parser.add_argument('--epochs', dest='max_epochs', default=200, type=int)
+    parser.add_argument('--epochs', dest='max_epochs', default=100, type=int)
     parser.add_argument('--explore', default=0.0, type=float)
     parser.add_argument('--no-cuda', action='store_true', default=False)
-    parser.add_argument('--rollouts', default=5, type=int)
-    parser.add_argument('--remotes', default=10, type=int)
+    parser.add_argument('--rollouts', default=6, type=int)
+    parser.add_argument('--remotes', default=30, type=int)
 
     # Memory model parameters; these get passed to make_memory function
     parser.add_argument('--data-dir', default='data100K')
     parser.add_argument('--buffer-size', default=100000, type=int)
 
     # Hyperparameters; these get pass from make_model into corresponding algs
-    parser.add_argument('--seed', default=1234, type=int)
+    parser.add_argument('--seed', default=12345, type=int)
     parser.add_argument('--seed-env', default=None, type=int)
     parser.add_argument('--channels', dest='out_channels', default=32, type=int)
     parser.add_argument('--gamma', default=0.90, type=float)
@@ -233,6 +239,7 @@ if __name__ == '__main__':
 
     args = parser.parse_args()
 
+    ray.init(redis_address="192.168.1.108:6379")
     #ray.init(redis_address="127.0.0.1:6379")
-    ray.init(num_cpus=args.remotes)
+    #ray.init(num_cpus=args.remotes)
     main(args)

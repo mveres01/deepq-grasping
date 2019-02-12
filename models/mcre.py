@@ -15,31 +15,6 @@ class Memory(BaseMemory):
     def __init__(self, *args, **kwargs):
         super(Memory, self).__init__(*args, **kwargs)
 
-    def load(self, gamma=0.92, *args, **kwargs):
-        """Modifies the reward of loaded data to be discounted future sum.
-
-        The off-policy version of MCRE (this file) returns an entire episode
-        of experience at a time when Memory.sample() is called. As this is a
-        sparse reward task, we'll initialize the reward to be discounted so
-        it won't have to be re-computed every time on the fly.
-        """
-        super(Memory, self).load(*args, **kwargs)
-
-        # Find where episodes start and end, and modify them based on
-        # the discount rate gamma
-        start, end = 0, 1
-        while end < self.buffer_size:
-
-            while self.timestep[end] > self.timestep[start]:
-                if end >= self.buffer_size - 1:
-                    break
-                end = end + 1
-
-            if self.reward[end - 1] == 1:
-                self.reward[start:end] = gamma ** np.arange(end-start)[::-1]
-
-            start, end = end, end + 1
-
     def sample(self, batch_size, batch_idx=None):
         """Samples grasping episodes rather then single timesteps."""
 

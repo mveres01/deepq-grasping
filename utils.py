@@ -5,7 +5,6 @@ from collections import deque
 import numpy as np
 import torch
 
-
 def make_env(max_steps, is_test, render):
     """Makes a new environment given a config file."""
 

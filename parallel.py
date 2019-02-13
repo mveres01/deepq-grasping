@@ -208,7 +208,7 @@ if __name__ == '__main__':
     parser.add_argument('--model', default='dqn',
                         choices=['dqn', 'ddqn', 'ddpg', 'supervised', 'mcre', 'cmcre'])
     parser.add_argument('--checkpoint', default=None)
-    parser.add_argument('--epochs', dest='max_epochs', default=100, type=int)
+    parser.add_argument('--epochs', dest='max_epochs', default=50, type=int)
     parser.add_argument('--explore', default=0.0, type=float)
     parser.add_argument('--no-cuda', action='store_true', default=False)
     parser.add_argument('--rollouts', default=6, type=int)

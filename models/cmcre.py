@@ -89,16 +89,13 @@ class CMCRE(BasePolicy):
         only. These are obtained by slicing the input at each timestep == 0.
         """
 
-        # As we sample a full episode, we can just take the difference
-        # between consecutive value predictions as the advantage
-        # Advantage = E[r(st, at) + gamma * V*(s_{t+1}) - V*(s_t)]
-        advantage = r - (Qstar - Vstar)
+        advantage = Qstar - Vstar
 
-        out = torch.zeros_like(r)
+        out = torch.zeros_like(r, requires_grad=False)
         for i in reversed(range(r.shape[0] - 1)):
             out[i] = gamma * (out[i+1] + (r[i+1] - advantage[i+1]))
 
-        # Later normalize over batch size
+        # Note that we later normalize over batch size
         loss = ((Qstar - (r + out)) ** 2).sum()
 
         return loss

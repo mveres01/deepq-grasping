@@ -109,7 +109,6 @@ def main(args):
     for _ in range(args.remotes):
         envs.append(EnvWrapper.remote(env_creator, model_creator, args.seed_env))
 
-
     # Trainable model does a significant amount of more work, so put on GPU
     device = torch.device('cpu' if args.no_cuda or not
                           torch.cuda.is_available() else 'cuda')
@@ -225,7 +224,7 @@ if __name__ == '__main__':
     parser.add_argument('--gamma', default=0.90, type=float)
     parser.add_argument('--decay', default=1e-5, type=float)
     parser.add_argument('--lr', dest='lrate', default=1e-3, type=float)
-    parser.add_argument('--batch-size', default=128, type=int)
+    parser.add_argument('--batch-size', default=512, type=int)
     parser.add_argument('--update', dest='update_iter', default=50, type=int)
     parser.add_argument('--uniform', dest='num_uniform', default=16, type=int)
     parser.add_argument('--cem', dest='num_cem', default=64, type=int)
@@ -239,7 +238,5 @@ if __name__ == '__main__':
 
     args = parser.parse_args()
 
-    ray.init(redis_address="192.168.1.108:6379")
-    #ray.init(redis_address="127.0.0.1:6379")
-    #ray.init(num_cpus=args.remotes)
+    ray.init(num_cpus=args.remotes)
     main(args)

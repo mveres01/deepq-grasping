@@ -8,7 +8,6 @@ import ray
 
 from utils import make_env, make_model, make_memory
 
-
 from visdom import Visdom
 vis = Visdom(port=8097)
 vis.close(None)
@@ -255,6 +254,6 @@ if __name__ == '__main__':
 
     args = parser.parse_args()
 
-    #ray.init(redis_address="127.0.0.1:6379")
+    #ray.init(redis_address='192.168.1.108:6379')
     ray.init(num_cpus=args.remotes)
     main(args)

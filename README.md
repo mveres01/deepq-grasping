@@ -4,17 +4,18 @@ Implements off-policy models from: https://arxiv.org/abs/1802.10264.
 
 Can use the robot &  environment from [here](https://github.com/google-research/google-research/tree/master/dql_grasping)
 
-WIP. More details and instructions to come. 
+WIP; More details and instructions to come. 
 
-## Requirements
+## Dependencies
 
 __Note__: Must be running Linux due to dependence on Ray package for parallel policy execution.
 
-* pytorch 1.0 (https://pytorch.org/)
-* matplotlib
-* ```pip install ray```
-* ```pip install gym```
-* ```pip install pybullet```
+```
+conda create -n deepq python=3.6
+pip install numpy ray gym pybullet psutil
+```
+
+And then follow the commmand from here [here](https://pytorch.org/) to install the appropriate version of PyTorch 1.0.
 
 # To Run:
 

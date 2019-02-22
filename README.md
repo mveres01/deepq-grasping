@@ -2,9 +2,13 @@
 
 Implements off-policy models from: https://arxiv.org/abs/1802.10264. 
 
-Can use the robot &  environment from [here](https://github.com/google-research/google-research/tree/master/dql_grasping)
+This project can also interface with the robot & environment provided [here](https://github.com/google-research/google-research/tree/master/dql_grasping), which is shown running in the image below.
 
-WIP; More details and instructions to come. 
+<p align="center">
+  <img src="./docs/grasping_visdom.JPG"/>
+</p>
+
+Still a slight WIP; more details and instructions to come. 
 
 ## Dependencies
 
@@ -15,9 +19,13 @@ conda create -n deepq python=3.6
 pip install numpy ray gym pybullet psutil
 ```
 
-And then follow the commmand from here [here](https://pytorch.org/) to install the appropriate version of PyTorch 1.0.
+And then follow the commmand from [here](https://pytorch.org/) to install the appropriate version of PyTorch 1.0.
 
 # To Run:
+
+This project only implements the offline grasping approach, meaning we will first collect experience offline, and then index this as an experience replay buffer that doesn't change. 
+
+__Note__: The command line can be used to specify a number of additional arguments. See parallel.py for details. 
 
 ## Collect Experience
 
@@ -31,8 +39,8 @@ Once data has been collected, you can begin training off-policy DQL models by se
 
 ```python parallel.py --remotes=1 --data-dir=data100K --model=[dqn, ddqn, ddpg, supervised, mcre, cmcre]``` 
 
-## Notes
-
-The command line can be used to specify a number of additional arguments. See parallel.py for details. 
-
 If running a visdom server, you can replace ```parallel.py``` with ```parallel_vis.py``` to watch task execution. 
+
+# Acknowledgements
+
+Thanks to Eric Jang for model discussion, and the Ray team for helping to debug. 

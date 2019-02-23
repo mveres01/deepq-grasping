@@ -1,9 +1,6 @@
 import os
-import copy
 import numpy as np
 import torch
-import torch.optim as optim
-
 from models.base.policy import BasePolicy
 from models.base.network import BaseNetwork
 from models.base.memory import BaseMemory
@@ -82,8 +79,10 @@ class MCRE(BasePolicy):
 
     def train(self, memory, gamma, batch_size, **kwargs):
 
+        del gamma  # unused
+
         # Sample a minibatch from the memory buffer. Note that we sample
-        # full grasping episodes in this method, so the output of 
+        # full grasping episodes in this method, so the output of
         # memory.sample will be episode_length * num_episodes
         s0, act, r, _, _, timestep = memory.sample(batch_size // 8)
 

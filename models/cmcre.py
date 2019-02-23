@@ -1,9 +1,6 @@
 import os
-import copy
 import numpy as np
 import torch
-import torch.optim as optim
-
 from models.base.network import BaseNetwork
 from models.base.memory import BaseMemory
 from models.base.optimizer import CEMOptimizer, UniformOptimizer

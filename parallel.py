@@ -128,13 +128,13 @@ def main(args):
         memory = make_memory(args.model, args.buffer_size)
         memory.load(**vars(args))
 
+        # Perform a validation step every full pass through the data
+        iters_per_epoch = args.buffer_size // args.batch_size
+
         # Keep a running average of n-epochs worth of rollouts
         step_queue = deque(maxlen=1 * args.rollouts * args.remotes)
         reward_queue = deque(maxlen=step_queue.maxlen)
-        loss_queue = deque(maxlen=step_queue.maxlen)
-
-        # Perform a validation step every full pass through the data
-        iters_per_epoch = args.buffer_size // args.batch_size
+        loss_queue = deque(maxlen=iters_per_epoch)
 
         best = -np.inf
         results = []

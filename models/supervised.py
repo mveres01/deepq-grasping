@@ -5,7 +5,7 @@ import torch
 from models.base.policy import BasePolicy
 from models.base.network import BaseNetwork
 from models.base.memory import BaseMemory
-from models.base.optimizer import CEMOptimizer
+from models.base.optimizer import CEMOptimizer, SupervisedCEMOptimizer
 
 
 class Memory(BaseMemory):
@@ -56,7 +56,9 @@ class Supervised(BasePolicy):
 
         self.model = BaseNetwork(**config).to(config['device'])
 
-        self.action_select_eval = CEMOptimizer(**config)
+        # Note this optimizer is slightly different then the one 
+        # used for other models
+        self.action_select_eval = SupervisedCEMOptimizer(**config)
 
         self.optimizer = torch.optim.Adam(self.model.parameters(),
                                           config['lrate'],

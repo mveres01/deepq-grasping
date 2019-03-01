@@ -211,7 +211,7 @@ if __name__ == '__main__':
     parser.add_argument('--explore', default=0.0, type=float)
     parser.add_argument('--no-cuda', action='store_true', default=False)
     parser.add_argument('--rollouts', default=6, type=int)
-    parser.add_argument('--remotes', default=30, type=int)
+    parser.add_argument('--remotes', default=10, type=int)
 
     # Memory model parameters; these get passed to make_memory function
     parser.add_argument('--data-dir', default='data100K')
